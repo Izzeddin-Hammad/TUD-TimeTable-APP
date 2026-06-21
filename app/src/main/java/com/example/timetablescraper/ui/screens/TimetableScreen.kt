@@ -508,13 +508,13 @@ fun TimetableScreen(
             ) {
                 val semStart = if (activeSemester == 0) firstWeekDate else sem2WeekDate
                 val semEnd = if (activeSemester == 0) sem2WeekDate?.minusWeeks(1) else null
-                // Only show weeks confirmed to have classes (activeWeeks).
-                // Weeks not yet scanned (in neither set) are excluded until the background
-                // scanner confirms them, permanently hiding empty and unscanned weeks.
+                // Hide weeks confirmed empty by the background scanner.
+                // Unscanned weeks remain visible until the scanner processes them;
+                // once confirmed empty they are removed from the dropdown permanently.
                 allAcademicWeeks.filter { w ->
-                    w.format(DATE_FORMATTER) in activeWeeks &&
                     (semStart == null || !w.isBefore(semStart)) &&
-                    (semEnd == null || !w.isAfter(semEnd))
+                    (semEnd == null || !w.isAfter(semEnd)) &&
+                    w.format(DATE_FORMATTER) !in emptyWeeks
                 }
             }
 
