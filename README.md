@@ -23,6 +23,8 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Persistent View State** — Remembers your semester, week, day tab, "All" toggle, and group per course across app restarts
 - **Offline Cache** — Room database caches timetables; view your schedule even without internet
 - **Request Minimization** — Singleton request debouncer deduplicates concurrent API calls to the same URL
+- **Client-Side Rate Limiting** — Token Bucket OkHttp interceptor (5 req/10s); returns synthetic 429 to trigger fail-safe fallback when exceeded
+- **Granular Cache Management** — Delete individual course caches from Settings without wiping everything
 - **Fail-Safe Fallback** — HTTP 429/500 and network errors fall back to stale cache with an "⚠️ Offline / Cached Mode" banner
 - **Background Sync** — WorkManager periodically refreshes cached timetables with configurable strategy-aware scheduling
 - **Bookmark Courses** — Save courses for quick access from Settings
@@ -37,7 +39,8 @@ UI (Jetpack Compose)
   └─ TimetableRepository (strategy-aware TTL, request debouncer, fail-safe)
        ├─ Room Database (per-week indexable key-value cache)
        ├─ TimetableApiService → OkHttp → Scientia Publish API (TU Dublin)
-       │     └─ RequestDebouncer (URL-keyed singleton deduplication)
+       │     ├─ RequestDebouncer (URL-keyed singleton deduplication)
+       │     └─ RateLimitInterceptor (Token Bucket; 5 req/10s)
        └─ WorkManager (strategy-aware periodic sync)
             └─ SyncNotificationManager (progress/completion notifications)
 ```
