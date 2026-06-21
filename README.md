@@ -15,12 +15,11 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
   - **Custom (days)** — User-defined day interval
 - **Settings Screen** — Access sync settings, academic week configuration, saved courses, cached data statistics
 - **Smart Semester Detection** — Auto-detects Semester 1 & 2 boundaries by scanning all academic weeks in the background (parallelized, 4× faster)
-- **Week Dropdown** — Numbered weeks (W1, W2, ...) with empty weeks automatically hidden
-- **"All" Toggle** — Show/hide empty weeks within the active semester, override auto-detection
+- **Week Dropdown** — Numbered weeks (W1, W2, ...) with empty weeks permanently hidden
 - **Semester Tabs** — Wide Semester 1 / Semester 2 tabs for quick semester switching
-- **Subgroup Filtering** — Select specific class groups (A, B, G1, G2, etc.) via dropdown with ⭐ default group pinning
+- **Subgroup Filtering** — Select specific class groups (A, B, G1, G2, etc.) via dropdown with ⭐ default group pinning; expand unlimited search results simultaneously to compare groups across courses
 - **Pin to Home** — Star a course to make it your home screen; opens instantly on launch
-- **Persistent View State** — Remembers your semester, week, day tab, "All" toggle, and group per course across app restarts
+- **Persistent View State** — Remembers your semester, week, day tab, and group per course across app restarts
 - **Offline Cache** — Room database caches timetables; view your schedule even without internet
 - **Request Minimization** — Singleton request debouncer deduplicates concurrent API calls to the same URL
 - **Client-Side Rate Limiting** — Token Bucket OkHttp interceptor (5 req/10s); returns synthetic 429 to trigger fail-safe fallback when exceeded
@@ -29,6 +28,9 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Fixed "All" Toggle** — Correctly shows/hides empty academic weeks; default state strictly hides empty weeks; ALL toggle shows continuous block from Week 1
 - **Subgroup UI Improvements** — 48dp touch target for dropdown arrows; gold star tint (⭐) on pinned/default subgroups for clear visual feedback
 - **Default Week 1** — New/uncached courses now default to the first academic week instead of incorrectly jumping to Week 4
+- **Removed "All" Toggle** — Empty academic weeks are now permanently hidden; the week dropdown only ever displays weeks with scheduled classes (no toggle UX clutter)
+- **Subgroup Expand Unlimited** — Removed artificial caps on subgroup expansion in search results; any number of courses can be expanded simultaneously to compare groups
+- **Week 1 Default (Deep Fix)** — New courses now jump to `visibleWeeks.first()` (the first non-empty week) instead of relying on fallback guesswork, eliminating the Week 4 regression at the root
 - **In-App Self-Updating** — Queries GitLab Releases API on launch; prompts with an update dialog when a newer version is detected; downloads APK via Android DownloadManager and launches the system package installer
 - **Fail-Safe Fallback** — HTTP 429/500 and network errors fall back to stale cache with an "⚠️ Offline / Cached Mode" banner
 - **Background Sync** — WorkManager periodically refreshes cached timetables with configurable strategy-aware scheduling
