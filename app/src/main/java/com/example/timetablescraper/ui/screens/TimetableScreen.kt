@@ -753,7 +753,7 @@ fun TimetableScreen(
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    text = errorMessage!!,
+                                    text = errorMessage ?: "An unexpected error occurred",
                                     color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
