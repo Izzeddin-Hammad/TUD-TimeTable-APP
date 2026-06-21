@@ -1,6 +1,6 @@
 # TimeTable
 
-> **⚠️ Prototype — TU Dublin only.** This app is currently hardcoded for TU Dublin's Scientia Publish timetable API. Support for other institutions is planned but not yet implemented.
+> **TU Dublin by default — supports any Scientia Publish institution.** TU Dublin is pre-configured. To add your university, add one entry to `Institution.ALL` in `Institution.kt` and select it in Settings.
 
 A smart Android timetable app that fetches your university schedule directly from the Scientia Publish API — no manual entry needed.
 
