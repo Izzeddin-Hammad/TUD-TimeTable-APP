@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.timetablescraper.MainActivity
+import com.example.timetablescraper.R
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -97,10 +98,7 @@ object SyncNotificationManager {
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
-            .setSmallIcon(
-                if (success) android.R.drawable.ic_dialog_info
-                else android.R.drawable.ic_dialog_alert
-            )
+            .setSmallIcon(R.drawable.ic_notification_sync)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setDefaults(NotificationCompat.DEFAULT_ALL)

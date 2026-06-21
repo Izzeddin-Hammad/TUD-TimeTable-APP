@@ -105,11 +105,18 @@ fun TimetableScreen(
 
     val hasSavedState = savedWeekStr != null
 
-    // currentMonday: restored from prefs → current week for new courses (overridden to week 1 later)
+    // currentMonday: restored from prefs → Week 1 for new/uncached courses
     var currentMonday by remember {
         mutableStateOf(
             savedWeekStr?.let { try { java.time.LocalDate.parse(it) } catch (_: Exception) { null } }
-                ?: TimetableUtils.getCurrentMonday()
+                ?: if (!hasSavedState) {
+                    // For new/uncached courses ONLY, default to the first academic week
+                    // instead of today's Monday (which could be Week 4+ of the semester).
+                    TimetableUtils.generateAcademicWeeks().firstOrNull()
+                        ?: TimetableUtils.getCurrentMonday()
+                } else {
+                    TimetableUtils.getCurrentMonday()
+                }
         )
     }
     var selectedDayIndex by remember { mutableStateOf(savedDayIdx) }
@@ -193,7 +200,8 @@ fun TimetableScreen(
                             timetableTypeId = selectedCourse.timetable_type_id,
                             mondayDate = monday,
                             forceRefresh = false,
-                            context = context
+                            context = context,
+                            courseName = selectedCourse.name
                         )
                         val key = monday.format(DATE_FORMATTER)
                         if (result.events.isEmpty()) {
@@ -226,7 +234,8 @@ fun TimetableScreen(
                 timetableTypeId = selectedCourse.timetable_type_id,
                 mondayDate = currentMonday,
                 forceRefresh = forceRefresh,
-                context = context
+                context = context,
+                courseName = selectedCourse.name
             )
             cacheSource = result.source
 
@@ -486,27 +495,34 @@ fun TimetableScreen(
                 }
             }
             val visibleWeeks = remember(
-                semesterWeeks, allAcademicWeeks, emptyWeeks, showEmptyWeeks, activeSemester
+                allAcademicWeeks, emptyWeeks, showEmptyWeeks, activeSemester,
+                firstWeekDate, sem2WeekDate
             ) {
+                val semStart = if (activeSemester == 0) firstWeekDate else sem2WeekDate
+                val semEnd = if (activeSemester == 0) sem2WeekDate?.minusWeeks(1) else null
                 if (showEmptyWeeks) {
-                    // Show all weeks in the active semester (including empty ones)
-                    val semStart = if (activeSemester == 0) firstWeekDate else sem2WeekDate
-                    val semEnd = if (activeSemester == 0) sem2WeekDate?.minusWeeks(1) else null
+                    // ALL toggle ON: show the full continuous block of weeks
+                    // strictly starting from Week 1 of the active semester
                     allAcademicWeeks.filter { w ->
                         (semStart == null || !w.isBefore(semStart)) &&
                         (semEnd == null || !w.isAfter(semEnd))
                     }
                 } else {
-                    semesterWeeks.filter { !emptyWeeks.contains(it.format(DATE_FORMATTER)) }
+                    // Default: strictly hide empty weeks identified by the background scanner
+                    allAcademicWeeks.filter { w ->
+                        (semStart == null || !w.isBefore(semStart)) &&
+                        (semEnd == null || !w.isAfter(semEnd)) &&
+                        w.format(DATE_FORMATTER) !in emptyWeeks
+                    }
                 }
             }
 
-            // When "All" is ON, always show the actual selection (even weeks outside semester).
-            // When "All" is OFF and currentMonday is outside the semester, jump to first
-            // semester week for display so the week picker starts at a valid semester week.
+            // When "All" is ON, always show the actual selection.
+            // When "All" is OFF and currentMonday is not visible, jump to the first
+            // visible week so the week picker shows a valid, non-empty week.
             val displayMonday = if (showEmptyWeeks) currentMonday
-                else if (semesterWeeks.isNotEmpty() && currentMonday !in semesterWeeks)
-                    semesterWeeks.firstOrNull() ?: currentMonday
+                else if (visibleWeeks.isNotEmpty() && currentMonday !in visibleWeeks)
+                    visibleWeeks.firstOrNull() ?: currentMonday
                 else currentMonday
 
             // For new courses (no saved state), start at semester week 1
@@ -587,7 +603,7 @@ fun TimetableScreen(
                         trailingIcon = {
                             ExposedDropdownMenuDefaults.TrailingIcon(
                                 expanded = weekMenuExpanded,
-                                modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                modifier = Modifier.size(48.dp)
                             )
                         },
                         singleLine = true,
@@ -655,7 +671,7 @@ fun TimetableScreen(
                         trailingIcon = {
                             ExposedDropdownMenuDefaults.TrailingIcon(
                                 expanded = groupMenuExpanded,
-                                modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                modifier = Modifier.size(48.dp)
                             )
                         },
                         singleLine = true,
@@ -675,8 +691,9 @@ fun TimetableScreen(
                             contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
                         )
                         availableGroups.forEach { group ->
+                            val isPinned = selectedGroup == group
                             DropdownMenuItem(
-                                text = { Text(group, fontWeight = if (selectedGroup == group) FontWeight.Bold else FontWeight.Normal) },
+                                text = { Text(group, fontWeight = if (isPinned) FontWeight.Bold else FontWeight.Normal) },
                                 onClick = {
                                     groupMenuExpanded = false
                                     selectedGroup = group
@@ -686,7 +703,12 @@ fun TimetableScreen(
                                     IconButton(onClick = {
                                         SyncPreferences.setLastGroup(context, selectedCourse.identity, group)
                                     }) {
-                                        Icon(Icons.Filled.Star, "Set as default", Modifier.size(18.dp))
+                                        Icon(
+                                            if (isPinned) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                            "Set as default",
+                                            Modifier.size(20.dp),
+                                            tint = if (isPinned) Color(0xFFFFD700) else LocalContentColor.current
+                                        )
                                     }
                                 }
                             )

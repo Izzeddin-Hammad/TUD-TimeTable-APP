@@ -142,6 +142,9 @@ class TimetableSyncWorker(
 
             for (courseIdentity in courseIdentities) {
                 try {
+                    // Resolve course name from saved courses (for Settings display)
+                    val courseName = dao.getSavedCourse(courseIdentity)?.name ?: ""
+
                     val response = apiService.fetchTimetable(
                         categoryTypeId = config.programmeTypeId,
                         identity = courseIdentity,
@@ -163,7 +166,8 @@ class TimetableSyncWorker(
                                     room = event.room,
                                     start = event.start,
                                     end = event.end,
-                                    group = event.group
+                                    group = event.group,
+                                    courseName = courseName
                                 )
                             }
                         dao.insertAll(entities)

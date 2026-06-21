@@ -70,12 +70,14 @@ fun SettingsScreen(
     var showClearConfirm by remember { mutableStateOf(false) }
     var savedCourses by remember { mutableStateOf<List<SavedCourseEntity>>(emptyList()) }
     var cachedCourseIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var cachedCourseNames by remember { mutableStateOf<List<com.example.timetablescraper.api.cache.TimetableDao.CourseNamePair>>(emptyList()) }
 
     /** Refresh the per-course cache list from the database. */
     fun refreshCachedCourses() {
         coroutineScope.launch {
             val dao = app.database.timetableDao()
             cachedCourseIds = dao.getDistinctCourseIdentities()
+            cachedCourseNames = dao.getDistinctCourseNames()
         }
     }
 
@@ -112,6 +114,7 @@ fun SettingsScreen(
         val courses = dao.getDistinctCourseIdentities()
         cacheCoursesCount = courses.size
         cachedCourseIds = courses
+        cachedCourseNames = dao.getDistinctCourseNames()
         newestCacheTime = dao.getNewestFetchedAt()
         savedCourses = dao.getSavedCourses()
     }
@@ -488,9 +491,19 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         cachedCourseIds.forEach { id ->
-                            // Resolve course name from saved courses, or show truncated identity
+                            // Resolve course name: cached name → saved course → URL-decoded identity
+                            val cachedPair = cachedCourseNames.firstOrNull { it.courseIdentity == id }
                             val saved = savedCourses.firstOrNull { it.identity == id }
-                            val displayName = saved?.name?.substringBefore("/") ?: id.take(12)
+                            val displayName = when {
+                                cachedPair != null && cachedPair.courseName.isNotBlank() ->
+                                    cachedPair.courseName.substringBefore("/")
+                                saved != null ->
+                                    saved.name.substringBefore("/")
+                                else -> {
+                                    try { java.net.URLDecoder.decode(id, "UTF-8").take(24) }
+                                    catch (_: Exception) { id.take(24) }
+                                }
+                            }
                             val detail = saved?.programmeCode ?: ""
 
                             Row(
@@ -523,6 +536,7 @@ fun SettingsScreen(
                                             cacheEventCount = dao.count()
                                             cacheWeeksCount = dao.countDistinctWeeks()
                                             cachedCourseIds = dao.getDistinctCourseIdentities()
+                                            cachedCourseNames = dao.getDistinctCourseNames()
                                             cacheCoursesCount = cachedCourseIds.size
                                             newestCacheTime = dao.getNewestFetchedAt()
                                         }
@@ -530,7 +544,7 @@ fun SettingsScreen(
                                     modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(
-                                        Icons.Default.Close,
+                                        Icons.Default.DeleteForever,
                                         contentDescription = "Delete cache for $displayName",
                                         tint = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(20.dp)

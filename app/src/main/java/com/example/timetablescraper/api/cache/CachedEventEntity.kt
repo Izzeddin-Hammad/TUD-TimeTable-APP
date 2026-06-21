@@ -42,5 +42,8 @@ data class CachedEventEntity(
     val end: String,
 
     /** Class group e.g. "TU859/Y3/C/G1" */
-    val group: String = ""
+    val group: String = "",
+
+    /** Human-readable course name from the search result, e.g. "TU859/Computer Science" */
+    val courseName: String = ""
 )

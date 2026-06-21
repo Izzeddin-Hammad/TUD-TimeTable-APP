@@ -24,7 +24,11 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Offline Cache** — Room database caches timetables; view your schedule even without internet
 - **Request Minimization** — Singleton request debouncer deduplicates concurrent API calls to the same URL
 - **Client-Side Rate Limiting** — Token Bucket OkHttp interceptor (5 req/10s); returns synthetic 429 to trigger fail-safe fallback when exceeded
-- **Granular Cache Management** — Delete individual course caches from Settings without wiping everything
+- **Granular Cache Management** — Delete individual course caches from Settings without wiping everything; properly displays course names resolved from cache/saved courses
+- **Corrected Notification Icon** — Custom vector drawable for sync notifications replaces system icons that rendered as solid white squares on some devices
+- **Fixed "All" Toggle** — Correctly shows/hides empty academic weeks; default state strictly hides empty weeks; ALL toggle shows continuous block from Week 1
+- **Subgroup UI Improvements** — 48dp touch target for dropdown arrows; gold star tint (⭐) on pinned/default subgroups for clear visual feedback
+- **Default Week 1** — New/uncached courses now default to the first academic week instead of incorrectly jumping to Week 4
 - **Fail-Safe Fallback** — HTTP 429/500 and network errors fall back to stale cache with an "⚠️ Offline / Cached Mode" banner
 - **Background Sync** — WorkManager periodically refreshes cached timetables with configurable strategy-aware scheduling
 - **Bookmark Courses** — Save courses for quick access from Settings
@@ -85,7 +89,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v1.2.1)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.2.1-debug.apk)
+[**Download latest APK (v1.3)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.3-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 

@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [CachedEventEntity::class, SavedCourseEntity::class, SearchHistoryEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class TimetableDatabase : RoomDatabase() {

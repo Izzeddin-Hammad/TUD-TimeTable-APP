@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Notification small icon for the Timetable sync channel.
+  A simple clock-in-calendar silhouette that renders cleanly
+  in the status bar (white/dark with alpha channel transparency).
+
+  Android tints the drawable to white on the status bar
+  automatically. The key is that this is a vector drawable
+  with a transparent background — unlike raster PNG icons
+  that often produce a solid white square.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Calendar page outline (transparent fill, solid stroke) -->
+    <path
+        android:pathData="M5,4L5,6L19,6L19,4"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+
+    <!-- Calendar binding holes (small circles) -->
+    <path
+        android:pathData="M8,4L8,2"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M16,4L16,2"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+
+    <!-- Calendar body (rounded rect outline) -->
+    <path
+        android:pathData="M4,6L4,20C4,21.1 4.9,22 6,22L18,22C19.1,22 20,21.1 20,20L20,6Z"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFFFFF"
+        android:fillColor="#00000000"
+        android:strokeLineJoin="round" />
+
+    <!-- Clock circle in center of calendar -->
+    <path
+        android:pathData="M12,12m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0"
+        android:strokeWidth="1.2"
+        android:strokeColor="#FFFFFF"
+        android:fillColor="#00000000" />
+
+    <!-- Clock hour hand (pointing roughly to 10 o'clock) -->
+    <path
+        android:pathData="M12,12L10.5,10.5"
+        android:strokeWidth="1.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+
+    <!-- Clock minute hand (pointing roughly to 2 o'clock) -->
+    <path
+        android:pathData="M12,12L14,11"
+        android:strokeWidth="0.8"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+</vector>

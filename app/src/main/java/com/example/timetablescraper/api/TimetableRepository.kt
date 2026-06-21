@@ -95,7 +95,8 @@ class TimetableRepository(
         timetableTypeId: String,
         mondayDate: LocalDate,
         forceRefresh: Boolean = false,
-        context: android.content.Context? = null
+        context: android.content.Context? = null,
+        courseName: String? = null
     ): CacheResult = withContext(Dispatchers.IO) {
 
             val weekStart = mondayDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
@@ -151,7 +152,8 @@ class TimetableRepository(
                                 room = event.room,
                                 start = event.start,
                                 end = event.end,
-                                group = event.group
+                                group = event.group,
+                                courseName = courseName ?: ""
                             )
                         }
                     dao.deleteForWeek(courseIdentity, weekStart)

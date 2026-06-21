@@ -60,6 +60,16 @@ interface TimetableDao {
     @Query("SELECT DISTINCT courseIdentity FROM cached_events")
     suspend fun getDistinctCourseIdentities(): List<String>
 
+    /** Get distinct (courseIdentity, courseName) pairs for display in Settings. */
+    @Query("SELECT DISTINCT courseIdentity, courseName FROM cached_events ORDER BY courseName ASC, courseIdentity ASC")
+    suspend fun getDistinctCourseNames(): List<CourseNamePair>
+
+    /** Data class for course identity + name queries. */
+    data class CourseNamePair(
+        val courseIdentity: String,
+        val courseName: String
+    )
+
     /** Get the newest fetchedAt timestamp across all cached data, or null. */
     @Query("SELECT MAX(fetchedAt) FROM cached_events")
     suspend fun getNewestFetchedAt(): Long?
