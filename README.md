@@ -84,7 +84,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 [**Download latest APK (v1.2)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.2-debug.apk)
 
-> Requires Android 8.0+ (API 26). Enable "Install from unknown sources" to sideload.
+> Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 
 ## Setup (for developers)
 
