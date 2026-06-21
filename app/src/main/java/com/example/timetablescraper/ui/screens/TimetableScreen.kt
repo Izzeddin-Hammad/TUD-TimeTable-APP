@@ -15,16 +15,20 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.*
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -72,6 +76,7 @@ fun TimetableScreen(
     isStarred: Boolean = false,
     onStarToggle: (Boolean) -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
     showBackArrow: Boolean = true
 ) {
     // ── Get repository from Application ──────────────────────────────────
@@ -364,25 +369,12 @@ fun TimetableScreen(
                         )
                     }
 
-                    // ── Refresh button ────────────────────────────────────
-                    IconButton(
-                        onClick = {
-                            isRefreshing = true
-                            refreshTrigger++
-                        },
-                        enabled = !isLoading
-                    ) {
-                        if (isRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = "Refresh timetable"
-                            )
-                        }
+                    // ── Settings button ─────────────────────────────────────
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Settings"
+                        )
                     }
                 }
             )
@@ -659,13 +651,22 @@ fun TimetableScreen(
                 displayEvents.isEmpty() -> "empty"
                 else -> "events"
             }
-            Crossfade(
-                targetState = contentState,
-                animationSpec = tween(300),
-                label = "content"
-            ) { state ->
-                when (state) {
-                "loading" -> {
+
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    refreshTrigger++
+                },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Crossfade(
+                    targetState = contentState,
+                    animationSpec = tween(300),
+                    label = "content"
+                ) { state ->
+                    when (state) {
+                    "loading" -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -731,6 +732,7 @@ fun TimetableScreen(
                 }
             }
         }
+    }
     }
     }
 }

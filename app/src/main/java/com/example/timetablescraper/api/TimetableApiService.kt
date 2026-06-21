@@ -22,9 +22,7 @@ import java.util.concurrent.TimeUnit
  */
 object TimetableApiService {
 
-    // These are fallback defaults — overridden per-call via the Institution parameter.
-    // Kept for backward compatibility with direct callers that don't pass an institution.
-    private val defaultInstitution = Institution.DEFAULT
+    private val institution = Institution.DEFAULT
 
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
@@ -33,19 +31,16 @@ object TimetableApiService {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private fun headers(referer: String) = mapOf(
+    private val headers = mapOf(
         "Authorization" to "Anonymous",
-        "Referer" to referer,
+        "Referer" to institution.referer,
         "Content-Type" to "application/json",
         "Accept" to "application/json, text/plain, */*"
     )
 
     // ── Search ─────────────────────────────────────────────────────────
 
-    suspend fun searchCourses(
-        query: String,
-        institution: Institution = defaultInstitution
-    ): SearchResponse = withContext(Dispatchers.IO) {
+    suspend fun searchCourses(query: String): SearchResponse = withContext(Dispatchers.IO) {
         val url = "${institution.apiBase}/CategoryTypes/${institution.programmeTypeId}" +
                 "/Categories/FilterWithCache/${institution.institutionId}" +
                 "?query=${query.replace(" ", "%20")}&pageNumber=1"
@@ -53,7 +48,7 @@ object TimetableApiService {
         val request = Request.Builder()
             .url(url)
             .post("{}".toRequestBody(JSON_MEDIA))
-            .apply { headers(institution.referer).forEach { (k, v) -> addHeader(k, v) } }
+            .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
             .build()
 
         val response = client.newCall(request).execute()
@@ -75,7 +70,7 @@ object TimetableApiService {
                     identity = item.optString("Identity", ""),
                     type = "Programme",
                     selection_id = "",
-                    timetable_type_id = institution.programmeTypeId
+                    timetable_type_id = "241e4d36-93f2-4938-9e15-d4536fe3b2eb"
                 )
             )
         }
@@ -88,8 +83,7 @@ object TimetableApiService {
     suspend fun fetchTimetable(
         categoryTypeId: String,
         identity: String,
-        mondayDate: LocalDate,
-        institution: Institution = defaultInstitution
+        mondayDate: LocalDate
     ): TimetableResponse = withContext(Dispatchers.IO) {
         try {
             val sunday = mondayDate.plusDays(6)
@@ -98,15 +92,15 @@ object TimetableApiService {
             val endRange = sunday.atTime(23, 59, 59).atOffset(ZoneOffset.UTC)
                 .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).replace("+00:00", ".000Z")
 
-            val url = "${institution.apiBase}/CategoryTypes/Categories/Events/Filter/" +
-                    "${institution.institutionId}?startRange=$startRange&endRange=$endRange"
+            val url = "https://scientia-eu-v4-api-d4-01.azurewebsites.net/api/Public/CategoryTypes/Categories/Events/Filter/" +
+                    "50a55ae1-1c87-4dea-bb73-c9e67941e1fd?startRange=$startRange&endRange=$endRange"
 
             val body = buildEventsBody(categoryTypeId, identity, mondayDate)
 
             val request = Request.Builder()
                 .url(url)
                 .post(body.toRequestBody(JSON_MEDIA))
-                .apply { headers(institution.referer).forEach { (k, v) -> addHeader(k, v) } }
+                .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
                 .build()
 
             val response = client.newCall(request).execute()

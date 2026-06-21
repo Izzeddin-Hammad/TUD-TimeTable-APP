@@ -132,6 +132,7 @@ private fun MainApp() {
                         selectedCourse = null
                         preselectedGroup = null
                     },
+                    onSettingsClick = { currentScreen = "SETTINGS" },
                     onBack = { goBackFromTimetable(viewingStarred) },
                     showBackArrow = !viewingStarred
                 )

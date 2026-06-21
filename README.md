@@ -1,13 +1,15 @@
-# TimeTable
+# TimeTable — Prototype
 
-> **TU Dublin by default — supports any Scientia Publish institution.** TU Dublin is pre-configured. To add your university, add one entry to `Institution.ALL` in `Institution.kt` and select it in Settings.
+> **⚠️ PROTOTYPE — TU Dublin only.** This app is a prototype/proof-of-concept that only supports **TU Dublin**. It connects to the TU Dublin Scientia Publish API. It is not intended for production use and may change significantly.
 
-A smart Android timetable app that fetches your university schedule directly from the Scientia Publish API — no manual entry needed.
+A prototype Android timetable app that fetches your TU Dublin university schedule directly from the Scientia Publish API — no manual entry needed.
 
 ## Features
 
 - **Direct API Integration** — Connects to the TU Dublin Scientia timetable API with Anonymous auth
 - **Course Search** — Search by course code or name with real-time debounced results
+- **Pull-to-Refresh** — Swipe down on the timetable to refresh from the API
+- **Settings Screen** — Access sync settings, academic week configuration, and saved courses
 - **Smart Semester Detection** — Auto-detects Semester 1 & 2 boundaries by scanning all academic weeks in the background
 - **Week Dropdown** — Numbered weeks (W1, W2, ...) with empty weeks automatically hidden
 - **Subgroup Filtering** — Select specific class groups (A, B, G1, G2, etc.) via dropdown with ⭐ default group pinning
@@ -25,7 +27,7 @@ A smart Android timetable app that fetches your university schedule directly fro
 UI (Jetpack Compose)
   └─ Repository (cache-first strategy)
        ├─ Room Database (local cache)
-       └─ OkHttp → Scientia Publish API
+       └─ OkHttp → Scientia Publish API (TU Dublin)
             └─ WorkManager (background sync)
 ```
 
@@ -48,7 +50,7 @@ UI (Jetpack Compose)
 
 ## Download
 
-[**Download latest APK (v1.0)**](https://github.com/Izzeddin-Hammad/TimeTable-APP/raw/main/releases/TimeTable-v1.0-debug.apk)
+[**Download latest APK (v1.1)**](https://github.com/Izzeddin-Hammad/TimeTable-APP/raw/main/releases/TimeTable-v1.1-debug.apk)
 
 > Requires Android 8.0+ (API 26). Enable "Install from unknown sources" to sideload.
 

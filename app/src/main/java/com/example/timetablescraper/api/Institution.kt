@@ -1,9 +1,7 @@
 package com.example.timetablescraper.api
 
 /**
- * Configuration for a university/institution using the Scientia Publish API.
- *
- * To add a new university, add an entry to [Institution.ALL].
+ * Configuration for the Scientia Publish API at TU Dublin.
  */
 data class Institution(
     val name: String,
@@ -20,11 +18,6 @@ data class Institution(
             programmeTypeId = "241e4d36-93f2-4938-9e15-d4536fe3b2eb",
             referer = "https://timetables.tudublin.ie/"
         )
-
-        /** All supported institutions. Add new entries here. */
-        val ALL = listOf(TU_DUBLIN)
-
-        /** Default institution used when none is configured. */
         val DEFAULT = TU_DUBLIN
     }
 }
