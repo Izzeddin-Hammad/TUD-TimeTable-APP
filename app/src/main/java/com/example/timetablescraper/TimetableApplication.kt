@@ -1,6 +1,7 @@
 package com.example.timetablescraper
 
 import android.app.Application
+import com.example.timetablescraper.api.Institution
 import com.example.timetablescraper.api.cache.TimetableDatabase
 import com.example.timetablescraper.api.TimetableRepository
 import com.example.timetablescraper.worker.TimetableSyncWorker
@@ -20,8 +21,13 @@ class TimetableApplication : Application() {
     }
 
     /** Repository that wraps cache + API. */
+    private val institution: Institution by lazy {
+        val index = SyncPreferences.getInstitutionIndex(this)
+        Institution.ALL.getOrElse(index) { Institution.DEFAULT }
+    }
+
     val repository: TimetableRepository by lazy {
-        TimetableRepository(database)
+        TimetableRepository(database, institution)
     }
 
     override fun onCreate() {

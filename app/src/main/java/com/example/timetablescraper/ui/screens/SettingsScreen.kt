@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.SyncPreferences
 import com.example.timetablescraper.TimetableApplication
+import com.example.timetablescraper.api.Institution
 import com.example.timetablescraper.api.SearchResult
 import com.example.timetablescraper.api.cache.SavedCourseEntity
 import com.example.timetablescraper.worker.TimetableSyncWorker
@@ -202,6 +203,50 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // ── Institution ─────────────────────────────────────────────
+            var instExpanded by remember { mutableStateOf(false) }
+            val instIndex = remember { SyncPreferences.getInstitutionIndex(context) }
+                .coerceIn(0, Institution.ALL.lastIndex)
+            Card {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Institution", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Select your university. Restart the app after changing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = instExpanded,
+                        onExpandedChange = { instExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = Institution.ALL[instIndex].name,
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = instExpanded) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = instExpanded,
+                            onDismissRequest = { instExpanded = false }
+                        ) {
+                            Institution.ALL.forEachIndexed { i, inst ->
+                                DropdownMenuItem(
+                                    text = { Text(inst.name) },
+                                    onClick = {
+                                        SyncPreferences.setInstitutionIndex(context, i)
+                                        instExpanded = false
+                                    },
+                                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             // ── First academic week ──────────────────────────────────────
             var firstWeekExpanded by remember { mutableStateOf(false) }

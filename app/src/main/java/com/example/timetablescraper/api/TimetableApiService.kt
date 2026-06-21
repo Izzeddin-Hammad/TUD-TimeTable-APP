@@ -22,10 +22,9 @@ import java.util.concurrent.TimeUnit
  */
 object TimetableApiService {
 
-    private const val API_BASE = "https://scientia-eu-v4-api-d4-01.azurewebsites.net/api/Public"
-    private const val INSTITUTION_ID = "50a55ae1-1c87-4dea-bb73-c9e67941e1fd"
-    private const val PROGRAMME_TYPE_ID = "241e4d36-93f2-4938-9e15-d4536fe3b2eb"
-    private const val REFERER = "https://timetables.tudublin.ie/"
+    // These are fallback defaults — overridden per-call via the Institution parameter.
+    // Kept for backward compatibility with direct callers that don't pass an institution.
+    private val defaultInstitution = Institution.DEFAULT
 
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
@@ -34,23 +33,27 @@ object TimetableApiService {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val apiHeaders = mapOf(
+    private fun headers(referer: String) = mapOf(
         "Authorization" to "Anonymous",
-        "Referer" to REFERER,
+        "Referer" to referer,
         "Content-Type" to "application/json",
         "Accept" to "application/json, text/plain, */*"
     )
 
     // ── Search ─────────────────────────────────────────────────────────
 
-    suspend fun searchCourses(query: String): SearchResponse = withContext(Dispatchers.IO) {
-        val url = "$API_BASE/CategoryTypes/$PROGRAMME_TYPE_ID/Categories/FilterWithCache/$INSTITUTION_ID" +
+    suspend fun searchCourses(
+        query: String,
+        institution: Institution = defaultInstitution
+    ): SearchResponse = withContext(Dispatchers.IO) {
+        val url = "${institution.apiBase}/CategoryTypes/${institution.programmeTypeId}" +
+                "/Categories/FilterWithCache/${institution.institutionId}" +
                 "?query=${query.replace(" ", "%20")}&pageNumber=1"
 
         val request = Request.Builder()
             .url(url)
             .post("{}".toRequestBody(JSON_MEDIA))
-            .apply { apiHeaders.forEach { (k, v) -> addHeader(k, v) } }
+            .apply { headers(institution.referer).forEach { (k, v) -> addHeader(k, v) } }
             .build()
 
         val response = client.newCall(request).execute()
@@ -72,7 +75,7 @@ object TimetableApiService {
                     identity = item.optString("Identity", ""),
                     type = "Programme",
                     selection_id = "",
-                    timetable_type_id = PROGRAMME_TYPE_ID
+                    timetable_type_id = institution.programmeTypeId
                 )
             )
         }
@@ -85,7 +88,8 @@ object TimetableApiService {
     suspend fun fetchTimetable(
         categoryTypeId: String,
         identity: String,
-        mondayDate: LocalDate
+        mondayDate: LocalDate,
+        institution: Institution = defaultInstitution
     ): TimetableResponse = withContext(Dispatchers.IO) {
         try {
             val sunday = mondayDate.plusDays(6)
@@ -94,15 +98,15 @@ object TimetableApiService {
             val endRange = sunday.atTime(23, 59, 59).atOffset(ZoneOffset.UTC)
                 .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).replace("+00:00", ".000Z")
 
-            val url = "$API_BASE/CategoryTypes/Categories/Events/Filter/$INSTITUTION_ID" +
-                    "?startRange=$startRange&endRange=$endRange"
+            val url = "${institution.apiBase}/CategoryTypes/Categories/Events/Filter/" +
+                    "${institution.institutionId}?startRange=$startRange&endRange=$endRange"
 
             val body = buildEventsBody(categoryTypeId, identity, mondayDate)
 
             val request = Request.Builder()
                 .url(url)
                 .post(body.toRequestBody(JSON_MEDIA))
-                .apply { apiHeaders.forEach { (k, v) -> addHeader(k, v) } }
+                .apply { headers(institution.referer).forEach { (k, v) -> addHeader(k, v) } }
                 .build()
 
             val response = client.newCall(request).execute()

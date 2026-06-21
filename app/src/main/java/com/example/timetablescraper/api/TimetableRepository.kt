@@ -22,7 +22,10 @@ import kotlinx.coroutines.withContext
  * Cache staleness is per (courseIdentity + weekStart), so navigating to a
  * different week or course that was already fetched hits the cache instantly.
  */
-class TimetableRepository(private val database: TimetableDatabase) {
+class TimetableRepository(
+    private val database: TimetableDatabase,
+    private val institution: Institution = Institution.DEFAULT
+) {
 
     private val dao = database.timetableDao()
 
@@ -78,7 +81,8 @@ class TimetableRepository(private val database: TimetableDatabase) {
                 val response = TimetableApiService.fetchTimetable(
                     categoryTypeId = timetableTypeId,
                     identity = courseIdentity,
-                    mondayDate = mondayDate
+                    mondayDate = mondayDate,
+                    institution = institution
                 )
 
                 // 3. Persist to cache (deduplicated — the API can return the same

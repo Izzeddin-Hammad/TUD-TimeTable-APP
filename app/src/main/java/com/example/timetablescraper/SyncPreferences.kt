@@ -61,6 +61,17 @@ object SyncPreferences {
     fun getSem2StartMonday(context: Context): String? =
         prefs(context).getString(KEY_SEM2_START, null)
 
+    // ── Institution selection ─────────────────────────────────────────
+
+    private const val KEY_INSTITUTION_INDEX = "institution_index"
+
+    fun getInstitutionIndex(context: Context): Int =
+        prefs(context).getInt(KEY_INSTITUTION_INDEX, 0)
+
+    fun setInstitutionIndex(context: Context, index: Int) {
+        prefs(context).edit().putInt(KEY_INSTITUTION_INDEX, index).apply()
+    }
+
     fun setSem2StartMonday(context: Context, monday: String?) {
         prefs(context).edit().putString(KEY_SEM2_START, monday).apply()
     }
