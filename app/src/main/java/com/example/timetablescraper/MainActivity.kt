@@ -12,6 +12,14 @@ import com.example.timetablescraper.ui.screens.SettingsScreen
 import com.example.timetablescraper.ui.screens.TimetableScreen
 import com.example.timetablescraper.ui.theme.TimetableScraperTheme
 import com.example.timetablescraper.api.SearchResult
+import com.example.timetablescraper.update.UpdateChecker
+import com.example.timetablescraper.update.UpdateManager
+import com.example.timetablescraper.update.UpdateReceiver
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,6 +36,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainApp() {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     var starred by remember { mutableStateOf(SyncPreferences.getStarredCourse(context)) }
     val initialScreen = if (starred != null) "TIMETABLE" else "SEARCH"
@@ -49,6 +58,68 @@ private fun MainApp() {
     var searchIsLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
     var searchHasSearched by remember { mutableStateOf(false) }
+
+    // ── Self-updating state ──────────────────────────────────────────────
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var updateResult by remember { mutableStateOf<UpdateChecker.UpdateResult?>(null) }
+    var updateCheckDone by remember { mutableStateOf(false) }
+
+    // Check for updates once on launch
+    LaunchedEffect(Unit) {
+        if (updateCheckDone) return@LaunchedEffect
+        updateCheckDone = true
+        val result = UpdateChecker.checkForUpdate()
+        updateResult = result
+        if (result.updateAvailable && result.downloadUrl != null) {
+            showUpdateDialog = true
+        }
+    }
+
+    // Register the download-complete receiver for the lifetime of this composable
+    val updateReceiver = remember { UpdateReceiver() }
+    DisposableEffect(Unit) {
+        UpdateManager.registerReceiver(context, updateReceiver)
+        onDispose {
+            try { context.unregisterReceiver(updateReceiver) } catch (_: Exception) {}
+        }
+    }
+
+    // ── Update available dialog ──────────────────────────────────────────
+    if (showUpdateDialog && updateResult != null) {
+        val remoteVersion = updateResult!!.remoteVersion ?: "latest"
+        AlertDialog(
+            onDismissRequest = { showUpdateDialog = false },
+            title = { Text("Update Available") },
+            text = {
+                Text(
+                    "A new version of TimeTable ($remoteVersion) is available. " +
+                    "Would you like to download and install it now?"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUpdateDialog = false
+                        val downloadUrl = updateResult?.downloadUrl
+                        if (downloadUrl != null) {
+                            coroutineScope.launch {
+                                UpdateManager.startDownload(context, downloadUrl)
+                            }
+                        }
+                    }
+                ) {
+                    Text("Update Now")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showUpdateDialog = false }
+                ) {
+                    Text("Later")
+                }
+            }
+        )
+    }
 
     // ── Back navigation logic ───────────────────────────────────────
     fun goToStarredOrExit() {

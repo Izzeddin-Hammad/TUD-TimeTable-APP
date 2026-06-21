@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider path configuration for the self-updating mechanism.
+
+  Maps the "downloads" root to the app's external files directory
+  under Environment.DIRECTORY_DOWNLOADS, where UpdateManager
+  writes the downloaded APK.
+
+  Used by:
+    <provider android:name="androidx.core.content.FileProvider"
+              android:authorities="${applicationId}.fileprovider" ... />
+-->
+<paths>
+    <external-files-path
+        name="downloads"
+        path="Download/" />
+</paths>

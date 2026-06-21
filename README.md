@@ -29,6 +29,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Fixed "All" Toggle** — Correctly shows/hides empty academic weeks; default state strictly hides empty weeks; ALL toggle shows continuous block from Week 1
 - **Subgroup UI Improvements** — 48dp touch target for dropdown arrows; gold star tint (⭐) on pinned/default subgroups for clear visual feedback
 - **Default Week 1** — New/uncached courses now default to the first academic week instead of incorrectly jumping to Week 4
+- **In-App Self-Updating** — Queries GitLab Releases API on launch; prompts with an update dialog when a newer version is detected; downloads APK via Android DownloadManager and launches the system package installer
 - **Fail-Safe Fallback** — HTTP 429/500 and network errors fall back to stale cache with an "⚠️ Offline / Cached Mode" banner
 - **Background Sync** — WorkManager periodically refreshes cached timetables with configurable strategy-aware scheduling
 - **Bookmark Courses** — Save courses for quick access from Settings
@@ -40,6 +41,8 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 ### Architecture
 ```
 UI (Jetpack Compose)
+  ├─ UpdateChecker → OkHttp → GitLab Releases API (self-updating)
+  ├─ UpdateManager → DownloadManager → FileProvider → System Installer
   └─ TimetableRepository (strategy-aware TTL, request debouncer, fail-safe)
        ├─ Room Database (per-week indexable key-value cache)
        ├─ TimetableApiService → OkHttp → Scientia Publish API (TU Dublin)
@@ -89,7 +92,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v1.3)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.3-debug.apk)
+[**Download latest APK (v1.4)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.4-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 
