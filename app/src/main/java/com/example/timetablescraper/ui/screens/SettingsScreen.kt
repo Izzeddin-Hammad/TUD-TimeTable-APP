@@ -1,5 +1,10 @@
 package com.example.timetablescraper.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,6 +17,7 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
+import androidx.core.content.ContextCompat
 import com.example.timetablescraper.api.TimetableUtils
 import java.time.LocalDate
 import androidx.activity.compose.BackHandler
@@ -24,9 +30,9 @@ import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.SyncPreferences
 import com.example.timetablescraper.TimetableApplication
 import com.example.timetablescraper.api.SearchResult
+import com.example.timetablescraper.api.SyncStrategy
 import com.example.timetablescraper.api.cache.SavedCourseEntity
 import com.example.timetablescraper.worker.TimetableSyncWorker
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -48,8 +54,14 @@ fun SettingsScreen(
     var autoSyncEnabled by remember {
         mutableStateOf(SyncPreferences.isAutoSyncEnabled(context))
     }
-    var syncIntervalHours by remember {
-        mutableStateOf(SyncPreferences.getSyncIntervalHours(context))
+    var syncStrategy by remember {
+        mutableStateOf(SyncPreferences.getSyncStrategy(context))
+    }
+    var customIntervalValue by remember {
+        mutableStateOf(SyncPreferences.getCustomIntervalValue(context).toString())
+    }
+    var customIntervalUnit by remember {
+        mutableStateOf(SyncPreferences.getCustomIntervalUnit(context))
     }
     var cacheEventCount by remember { mutableStateOf(0) }
     var cacheWeeksCount by remember { mutableStateOf(0) }
@@ -57,6 +69,31 @@ fun SettingsScreen(
     var newestCacheTime by remember { mutableStateOf<Long?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var savedCourses by remember { mutableStateOf<List<SavedCourseEntity>>(emptyList()) }
+
+    // ── Helper: refresh cache stats ──────────────────────────────────
+    fun refreshCacheStats() {
+        coroutineScope.launch {
+            kotlinx.coroutines.delay(500)
+            val dao = app.database.timetableDao()
+            cacheEventCount = dao.count()
+            cacheWeeksCount = dao.countDistinctWeeks()
+            newestCacheTime = dao.getNewestFetchedAt()
+        }
+    }
+
+    // ── Permission launcher for POST_NOTIFICATIONS (Android 13+) ───
+    var showPermissionRationale by remember { mutableStateOf(false) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            // Permission granted — trigger sync now
+            TimetableSyncWorker.syncNow(context)
+            refreshCacheStats()
+        } else {
+            showPermissionRationale = true
+        }
+    }
 
     // Load cache stats and saved courses
     LaunchedEffect(Unit) {
@@ -139,35 +176,92 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    // Interval selector (only when enabled)
+                    // ── Sync Strategy selector (Daily / Weekly / Custom) ──
                     if (autoSyncEnabled) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "Refresh every",
+                            "Sync Strategy",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
+                        Text(
+                            "Network calls are blocked while your cache is fresh.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
 
+                        // Mode chips: Daily / Weekly / Custom
+                        val modes = listOf(
+                            SyncStrategy.Daily to "Daily (24h)",
+                            SyncStrategy.Weekly to "Weekly (7d)",
+                            SyncStrategy.Custom(1) to "Custom"
+                        )
+
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(6, 12, 24).forEach { hours ->
+                            modes.forEach { (mode, label) ->
                                 FilterChip(
-                                    selected = syncIntervalHours == hours,
+                                    selected = when (syncStrategy) {
+                                        is SyncStrategy.Daily -> mode is SyncStrategy.Daily
+                                        is SyncStrategy.Weekly -> mode is SyncStrategy.Weekly
+                                        is SyncStrategy.Custom -> mode is SyncStrategy.Custom
+                                    },
                                     onClick = {
-                                        syncIntervalHours = hours
-                                        SyncPreferences.setSyncIntervalHours(context, hours)
+                                        syncStrategy = when (mode) {
+                                            is SyncStrategy.Daily -> SyncStrategy.Daily
+                                            is SyncStrategy.Weekly -> SyncStrategy.Weekly
+                                            is SyncStrategy.Custom -> {
+                                                val v = customIntervalValue.toIntOrNull() ?: 1
+                                                val u = try {
+                                                    java.util.concurrent.TimeUnit.valueOf(customIntervalUnit)
+                                                } catch (_: Exception) {
+                                                    java.util.concurrent.TimeUnit.HOURS
+                                                }
+                                                SyncStrategy.Custom(v.coerceAtLeast(1), u)
+                                            }
+                                            else -> SyncStrategy.Daily
+                                        }
+                                        SyncPreferences.setSyncStrategy(context, syncStrategy)
                                         TimetableSyncWorker.schedule(context)
                                     },
-                                    label = {
-                                        Text(
-                                            when (hours) {
-                                                6 -> "6h"
-                                                12 -> "12h"
-                                                24 -> "Daily"
-                                                else -> "${hours}h"
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+
+                        // ── Custom interval fields (only when Custom is selected) ──
+                        if (syncStrategy is SyncStrategy.Custom) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = customIntervalValue,
+                                    onValueChange = { newVal ->
+                                        // Only allow digits
+                                        if (newVal.all { it.isDigit() } && newVal.length <= 5) {
+                                            customIntervalValue = newVal
+                                            val v = newVal.toIntOrNull()
+                                            if (v != null && v > 0) {
+                                                syncStrategy = SyncStrategy.Custom(v, java.util.concurrent.TimeUnit.DAYS)
+                                                SyncPreferences.setSyncStrategy(context, syncStrategy)
+                                                TimetableSyncWorker.schedule(context)
                                             }
-                                        )
-                                    }
+                                        }
+                                    },
+                                    label = { Text("Days") },
+                                    suffix = { Text("day(s)") },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.width(100.dp)
+                                )
+
+                                // Always DAYS — no unit dropdown needed
+                                Text(
+                                    "= ${syncStrategy.ttlMillis() / 86_400_000} day(s) cache validity",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -178,14 +272,16 @@ fun SettingsScreen(
             // ── Sync now button ────────────────────────────────────────
             Button(
                 onClick = {
-                    TimetableSyncWorker.syncNow(context)
-                    // Give a moment for the one-off worker to start, then reload stats
-                    coroutineScope.launch {
-                        delay(500)
-                        val dao = app.database.timetableDao()
-                        cacheEventCount = dao.count()
-                        cacheWeeksCount = dao.countDistinctWeeks()
-                        newestCacheTime = dao.getNewestFetchedAt()
+                    // On Android 13+, request POST_NOTIFICATIONS permission first
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.POST_NOTIFICATIONS
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        TimetableSyncWorker.syncNow(context)
+                        refreshCacheStats()
                     }
                 },
                 modifier = Modifier.fillMaxWidth()

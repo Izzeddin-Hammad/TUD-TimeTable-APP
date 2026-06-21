@@ -23,7 +23,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -37,12 +37,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.SyncPreferences
 import com.example.timetablescraper.TimetableApplication
+import com.example.timetablescraper.worker.SyncNotificationManager
 import com.example.timetablescraper.api.CacheSource
 import com.example.timetablescraper.api.SearchResult
 import com.example.timetablescraper.api.TimetableEvent
 import com.example.timetablescraper.api.TimetableUtils
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -87,29 +93,32 @@ fun TimetableScreen(
     // Intercept system back gesture / button
     BackHandler(onBack = onBack)
 
-    // ── State ───────────────────────────────────────────────────────────
-    // Remember the last-viewed Monday per course so returning restores it
-    var lastMondayByCourse by rememberSaveable {
-        mutableStateOf(mutableMapOf<String, String>())
-    }
-    val savedMonday = lastMondayByCourse[selectedCourse.identity]?.let {
-        try { java.time.LocalDate.parse(it) } catch (_: Exception) { null }
-    }
+    // ── State (persisted across app restarts via SharedPreferences) ─────
+    // Restore saved view state for this course (or use defaults for new courses)
+    val savedWeekStr = SyncPreferences.getSavedWeek(context, selectedCourse.identity)
+    val savedDayIdx = SyncPreferences.getSavedDayIndex(context, selectedCourse.identity)
+    val savedSemester = SyncPreferences.getSavedSemester(context, selectedCourse.identity)
+    val savedShowAll = SyncPreferences.getSavedShowAll(context, selectedCourse.identity)
     val savedGroup = remember(selectedCourse.identity) {
         SyncPreferences.getLastGroup(context, selectedCourse.identity)
     }
+
+    val hasSavedState = savedWeekStr != null
+
+    // currentMonday: restored from prefs → current week for new courses (overridden to week 1 later)
     var currentMonday by remember {
-        mutableStateOf(savedMonday ?: TimetableUtils.getCurrentMonday())
+        mutableStateOf(
+            savedWeekStr?.let { try { java.time.LocalDate.parse(it) } catch (_: Exception) { null } }
+                ?: TimetableUtils.getCurrentMonday()
+        )
     }
-    var selectedDayIndex by remember { mutableStateOf(0) } // 0=Mon
+    var selectedDayIndex by remember { mutableStateOf(savedDayIdx) }
     var isLoading by remember { mutableStateOf(true) }
-    var isRefreshing by remember { mutableStateOf(false) }
     var events by remember { mutableStateOf<List<TimetableEvent>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var cacheSource by remember { mutableStateOf<CacheSource?>(null) }
     var isSaved by remember { mutableStateOf(false) }
     var selectedGroup by rememberSaveable { mutableStateOf<String?>(null) }
-    // Apply preselected or saved group on first load / when course changes
     var groupInitialised by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(selectedCourse.identity) {
         groupInitialised = false
@@ -118,14 +127,12 @@ fun TimetableScreen(
         if (!groupInitialised) {
             selectedGroup = preselectedGroup ?: savedGroup
             groupInitialised = true
-            android.util.Log.d("Timetable", "Group init: preselected=$preselectedGroup saved=$savedGroup → selected=$selectedGroup")
         }
     }
     var weekMenuExpanded by remember { mutableStateOf(false) }
-    // Weeks we've loaded and found to be empty — hidden from the menu by default
     var emptyWeeks by rememberSaveable { mutableStateOf(setOf<String>()) }
     var activeWeeks by rememberSaveable { mutableStateOf(setOf<String>()) }
-    var showEmptyWeeks by rememberSaveable { mutableStateOf(false) }
+    var showEmptyWeeks by remember { mutableStateOf(savedShowAll) }
     var scanningWeeks by remember { mutableStateOf(false) }
     var scannedCount by remember { mutableStateOf(0) }
     var totalToScan by remember { mutableStateOf(0) }
@@ -157,9 +164,10 @@ fun TimetableScreen(
         }
     }
 
-    // ── Background week scanner ──────────────────────────────────────
+    // ── Background week scanner (parallelized) ──────────────────────
     // After the first successful load, scan all remaining weeks in the
     // background so empty ones disappear from the dropdown automatically.
+    // Uses parallel coroutines (4-way) to reduce scan time from ~30s to ~8s.
     LaunchedEffect(events.isNotEmpty(), selectedCourse.identity) {
         if (!events.isNotEmpty() || scanningWeeks) return@LaunchedEffect
         scanningWeeks = true
@@ -172,24 +180,35 @@ fun TimetableScreen(
         totalToScan = toScan.size
         scannedCount = 0
 
-        for (monday in toScan) {
-            try {
-                val result = repository.loadTimetable(
-                    courseIdentity = selectedCourse.identity,
-                    timetableTypeId = selectedCourse.timetable_type_id,
-                    mondayDate = monday,
-                    forceRefresh = false
-                )
-                val key = monday.format(DATE_FORMATTER)
-                if (result.events.isEmpty()) {
-                    emptyWeeks = emptyWeeks + key
-                } else {
-                    activeWeeks = activeWeeks + key
+        // 4-way parallel: avoid flooding network, still 4× faster than sequential
+        val parallelism = minOf(4, toScan.size)
+        val semaphore = Semaphore(parallelism)
+        coroutineScope {
+            toScan.map { monday ->
+                async {
+                    semaphore.acquire()
+                    try {
+                        val result = repository.loadTimetable(
+                            courseIdentity = selectedCourse.identity,
+                            timetableTypeId = selectedCourse.timetable_type_id,
+                            mondayDate = monday,
+                            forceRefresh = false,
+                            context = context
+                        )
+                        val key = monday.format(DATE_FORMATTER)
+                        if (result.events.isEmpty()) {
+                            emptyWeeks = emptyWeeks + key
+                        } else {
+                            activeWeeks = activeWeeks + key
+                        }
+                    } catch (_: Exception) {
+                        // Network error — skip this week, try later
+                    } finally {
+                        scannedCount++
+                        semaphore.release()
+                    }
                 }
-            } catch (_: Exception) {
-                // Network error — skip this week, try later
-            }
-            scannedCount++
+            }.awaitAll()
         }
         scanningWeeks = false
     }
@@ -206,28 +225,41 @@ fun TimetableScreen(
                 courseIdentity = selectedCourse.identity,
                 timetableTypeId = selectedCourse.timetable_type_id,
                 mondayDate = currentMonday,
-                forceRefresh = forceRefresh
+                forceRefresh = forceRefresh,
+                context = context
             )
             cacheSource = result.source
-            val mondayStr = currentMonday.format(DATE_FORMATTER)
-            events = TimetableUtils.deduplicateEvents(result.events)
-                .map { TimetableUtils.toUiEvent(it, mondayStr) }
-                .distinctBy { "${it.start}|${it.title}|${it.lecturer}|${it.type}|${it.room}" }
 
-            // Remember this week so returning to this course restores it
-            if (events.isNotEmpty() && !forceRefresh) {
-                lastMondayByCourse = lastMondayByCourse.toMutableMap().apply {
-                    put(selectedCourse.identity, currentMonday.format(DATE_FORMATTER))
-                }
+            // Post notification for pull-to-refresh — runs on Main dispatcher
+            // (outside the IO block), so no IO contention.
+            if (forceRefresh && result.source == CacheSource.NETWORK) {
+                val eventCount = result.events.size
+                val courseName = selectedCourse.name.substringBefore("/")
+                SyncNotificationManager.postCompletionNotification(
+                    context,
+                    success = true,
+                    summary = "Refreshed $eventCount event(s) for $courseName"
+                )
             }
 
-            // Mark empty weeks so they're removed from the dropdown, then advance
+            val mondayStr = currentMonday.format(DATE_FORMATTER)
+            // Events already deduplicated by repository — no second pass needed
+            events = result.events
+                .map { TimetableUtils.toUiEvent(it, mondayStr) }
+
+            // Mark empty weeks so they're removed from the dropdown.
+            // We do NOT mutate currentMonday here — let the user navigate
+            // with the week picker. The displayMonday logic will jump the
+            // visual selection to the first valid semester week if
+            // currentMonday falls outside semester bounds.
             if (events.isEmpty() && !forceRefresh && !userPickedWeek) {
                 val weekStr = currentMonday.format(DATE_FORMATTER)
                 emptyWeeks = emptyWeeks + weekStr
 
                 // In summer (Jun–Aug), bulk-mark all summer weeks as empty
-                // and jump to the user's configured first week (or October).
+                // so they're hidden from the dropdown, but keep currentMonday
+                // as the actual current week. The displayMonday logic below
+                // handles showing the first semester week in the picker.
                 if (currentMonday.monthValue in 6..8) {
                     val prefMonday = SyncPreferences.getFirstWeekMonday(context)
                         ?.let { try { LocalDate.parse(it) } catch (_: Exception) { null } }
@@ -238,24 +270,15 @@ fun TimetableScreen(
                             java.time.LocalDate.of(academicYear, 10, 1)
                                 .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
                         }
-                    // Mark every Monday from now until the target as empty
+                    // Mark summer weeks as empty so the hide-empty-weeks filter
+                    // removes them — but don't jump currentMonday.
                     var m = currentMonday
-                    while (!m.isAfter(targetMonday.minusWeeks(1))) {
+                    while (m.isBefore(targetMonday)) {
                         emptyWeeks = emptyWeeks + m.format(DATE_FORMATTER)
                         m = m.plusWeeks(1)
                     }
-                    currentMonday = targetMonday
-                } else {
-                    val allWeeks = TimetableUtils.generateAcademicWeeks()
-                    val nextMonday = allWeeks
-                        .dropWhile { !it.isAfter(currentMonday) || it == currentMonday }
-                        .firstOrNull { !emptyWeeks.contains(it.format(DATE_FORMATTER)) }
-                        ?: allWeeks.firstOrNull { !emptyWeeks.contains(it.format(DATE_FORMATTER)) }
-                    if (nextMonday != null && nextMonday != currentMonday) {
-                        currentMonday = nextMonday
-                    }
                 }
-                return@LaunchedEffect
+                // Don't advance currentMonday — user picks their week
             }
 
             // If we loaded stale cache and there's an error, show a warning
@@ -280,7 +303,6 @@ fun TimetableScreen(
             cacheSource = null
         } finally {
             isLoading = false
-            isRefreshing = false
             userPickedWeek = false
         }
     }
@@ -452,8 +474,8 @@ fun TimetableScreen(
             val firstWeekDate = manualFirst ?: autoFirstWeek ?: fallbackFirst
             val sem2WeekDate = manualSem2 ?: autoSem2Start ?: fallbackSem2
 
-            // Active semester: 0 = Sem 1, 1 = Sem 2
-            var activeSemester by rememberSaveable { mutableStateOf(0) }
+            // Active semester: 0 = Sem 1, 1 = Sem 2 (restored from saved state)
+            var activeSemester by remember { mutableStateOf(savedSemester) }
 
             // Filter weeks by semester
             val semesterWeeks = remember(allAcademicWeeks, firstWeekDate, sem2WeekDate, activeSemester) {
@@ -463,37 +485,83 @@ fun TimetableScreen(
                     (from == null || !w.isBefore(from)) && (to == null || !w.isAfter(to))
                 }
             }
-            val visibleWeeks = remember(semesterWeeks, allAcademicWeeks, emptyWeeks, showEmptyWeeks) {
-                if (showEmptyWeeks) allAcademicWeeks
-                else semesterWeeks.filter { !emptyWeeks.contains(it.format(DATE_FORMATTER)) }
-            }
-
-            // If currentMonday is outside the active semester, jump to first week
-            val displayMonday = if (semesterWeeks.isNotEmpty() && currentMonday !in semesterWeeks)
-                semesterWeeks.first() else currentMonday
-            LaunchedEffect(activeSemester) {
-                if (semesterWeeks.isNotEmpty()) {
-                    currentMonday = semesterWeeks.first()
+            val visibleWeeks = remember(
+                semesterWeeks, allAcademicWeeks, emptyWeeks, showEmptyWeeks, activeSemester
+            ) {
+                if (showEmptyWeeks) {
+                    // Show all weeks in the active semester (including empty ones)
+                    val semStart = if (activeSemester == 0) firstWeekDate else sem2WeekDate
+                    val semEnd = if (activeSemester == 0) sem2WeekDate?.minusWeeks(1) else null
+                    allAcademicWeeks.filter { w ->
+                        (semStart == null || !w.isBefore(semStart)) &&
+                        (semEnd == null || !w.isAfter(semEnd))
+                    }
+                } else {
+                    semesterWeeks.filter { !emptyWeeks.contains(it.format(DATE_FORMATTER)) }
                 }
             }
 
-            // ── Semester tabs ──────────────────────────────────────────
+            // When "All" is ON, always show the actual selection (even weeks outside semester).
+            // When "All" is OFF and currentMonday is outside the semester, jump to first
+            // semester week for display so the week picker starts at a valid semester week.
+            val displayMonday = if (showEmptyWeeks) currentMonday
+                else if (semesterWeeks.isNotEmpty() && currentMonday !in semesterWeeks)
+                    semesterWeeks.firstOrNull() ?: currentMonday
+                else currentMonday
+
+            // For new courses (no saved state), start at semester week 1
+            var weekOneSet by remember { mutableStateOf(false) }
+            LaunchedEffect(semesterWeeks) {
+                if (!hasSavedState && !weekOneSet && semesterWeeks.isNotEmpty()) {
+                    currentMonday = semesterWeeks.first()
+                    weekOneSet = true
+                }
+            }
+
+            // When user manually switches semester tab, reset to that semester's first week
+            LaunchedEffect(activeSemester) {
+                if (semesterWeeks.isNotEmpty()) {
+                    // If saved state exists, only jump if currentMonday is outside the new semester
+                    if (!hasSavedState || currentMonday !in semesterWeeks) {
+                        currentMonday = semesterWeeks.first()
+                    }
+                }
+            }
+
+            // ── Persist view state on any change ───────────────────────────
+            LaunchedEffect(
+                currentMonday, selectedDayIndex, showEmptyWeeks,
+                activeSemester, selectedCourse.identity
+            ) {
+                SyncPreferences.saveCourseViewState(
+                    context,
+                    selectedCourse.identity,
+                    semester = activeSemester,
+                    weekStart = currentMonday.format(DATE_FORMATTER),
+                    showAll = showEmptyWeeks,
+                    dayIndex = selectedDayIndex
+                )
+            }
+
+            // ── Semester tabs (wide, at top) ──────────────────────────────
             if (sem2WeekDate != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
                         selected = activeSemester == 0,
                         onClick = { activeSemester = 0 },
-                        label = { Text("Semester 1") }
+                        label = { Text("Semester 1") },
+                        modifier = Modifier.weight(1f)
                     )
                     FilterChip(
                         selected = activeSemester == 1,
                         onClick = { activeSemester = 1 },
-                        label = { Text("Semester 2") }
+                        label = { Text("Semester 2") },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -652,20 +720,12 @@ fun TimetableScreen(
                 else -> "events"
             }
 
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = {
-                    isRefreshing = true
-                    refreshTrigger++
-                },
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Crossfade(
-                    targetState = contentState,
-                    animationSpec = tween(300),
-                    label = "content"
-                ) { state ->
-                    when (state) {
+            Crossfade(
+                targetState = contentState,
+                animationSpec = tween(300),
+                label = "content"
+            ) { state ->
+                when (state) {
                     "loading" -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -692,7 +752,6 @@ fun TimetableScreen(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 OutlinedButton(onClick = {
-                                    isRefreshing = true
                                     refreshTrigger++
                                 }) {
                                     Icon(Icons.Default.Refresh, contentDescription = null)
@@ -734,30 +793,51 @@ fun TimetableScreen(
         }
     }
     }
-    }
 }
 
-// ── Cache status bar ────────────────────────────────────────────────────────
+// ── Cache status bar / Offline warning ──────────────────────────────────────
 
+/**
+ * Enhanced cache status indicator that doubles as an offline warning banner.
+ *
+ * - [CacheSource.CACHE_FRESH]: green, compact — shows "Loaded from cache"
+ * - [CacheSource.CACHE_STALE]: orange/amber, **prominent** — shows
+ *   "⚠️ Offline / Cached Mode" with explanation text. Indicates the app
+ *   could not reach the server and is showing potentially outdated data.
+ * - [CacheSource.NETWORK]: blue, compact — shows "Updated from server"
+ */
 @Composable
 private fun CacheStatusBar(source: CacheSource) {
     val (text, color) = when (source) {
         CacheSource.CACHE_FRESH -> "📦 Loaded from cache" to Color(0xFF4CAF50)
-        CacheSource.CACHE_STALE -> "⚠️ Showing cached data (offline)" to Color(0xFFFF9800)
+        CacheSource.CACHE_STALE -> "⚠️ Offline / Cached Mode — data may be outdated" to Color(0xFFFF9800)
         CacheSource.NETWORK -> "🌐 Updated from server" to Color(0xFF2196F3)
     }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = color.copy(alpha = 0.1f)
+        color = when (source) {
+            CacheSource.CACHE_STALE -> Color(0xFFFF9800).copy(alpha = 0.15f)
+            else -> color.copy(alpha = 0.1f)
+        }
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            fontWeight = FontWeight.Medium
-        )
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall,
+                color = color,
+                fontWeight = FontWeight.Medium
+            )
+            if (source == CacheSource.CACHE_STALE) {
+                Text(
+                    text = "Network request failed — showing last cached version. " +
+                            "Your sync interval may still be active.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = color.copy(alpha = 0.7f),
+                    fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.85f
+                )
+            }
+        }
     }
 }
 

@@ -60,23 +60,30 @@ fun SearchScreen(
             return@LaunchedEffect
         }
 
+        // Capture query at the moment this effect fired
+        val capturedQuery = query
+
         // Debounce 300ms
         delay(300)
 
-        // Check query hasn't changed during debounce
-        if (query.isBlank()) return@LaunchedEffect
+        // If query changed during debounce, abort — a newer LaunchedEffect handles it
+        if (query != capturedQuery || query.isBlank()) return@LaunchedEffect
 
         onStateChange(query, emptyList(), true, null, true)
 
         try {
-            val response = TimetableApiService.searchCourses(query)
-            onStateChange(query, response.results, false, null, true)
-            // Record successful search in history
-            coroutineScope.launch { repository.recordSearch(query) }
+            val response = TimetableApiService.DEFAULT.searchCourses(query)
+            // Double-check query still matches before updating state
+            if (query == capturedQuery) {
+                onStateChange(query, response.results, false, null, true)
+                coroutineScope.launch { repository.recordSearch(query) }
+            }
         } catch (e: CancellationException) {
-            throw e  // Don't swallow compose navigation cancellation
+            throw e
         } catch (e: Exception) {
-            onStateChange(query, emptyList(), false, "Connection error: ${e.message ?: "Search failed"}", true)
+            if (query == capturedQuery) {
+                onStateChange(query, emptyList(), false, "Connection error: ${e.message ?: "Search failed"}", true)
+            }
         }
     }
 
@@ -238,7 +245,7 @@ fun SearchScreen(
                                                 var monday = now.with(
                                                     java.time.temporal.TemporalAdjusters.previousOrSame(
                                                         java.time.DayOfWeek.MONDAY))
-                                                var response = TimetableApiService.fetchTimetable(
+                                                var response = TimetableApiService.DEFAULT.fetchTimetable(
                                                     categoryTypeId = result.timetable_type_id,
                                                     identity = result.identity,
                                                     mondayDate = monday
@@ -248,7 +255,7 @@ fun SearchScreen(
                                                     monday = java.time.LocalDate.of(academicYear, 10, 1)
                                                         .with(java.time.temporal.TemporalAdjusters.previousOrSame(
                                                             java.time.DayOfWeek.MONDAY))
-                                                    response = TimetableApiService.fetchTimetable(
+                                                    response = TimetableApiService.DEFAULT.fetchTimetable(
                                                         categoryTypeId = result.timetable_type_id,
                                                         identity = result.identity,
                                                         mondayDate = monday

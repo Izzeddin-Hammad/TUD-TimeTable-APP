@@ -1,5 +1,6 @@
 package com.example.timetablescraper.api
 
+import com.example.timetablescraper.SyncPreferences
 import com.example.timetablescraper.api.cache.CachedEventEntity
 import com.example.timetablescraper.api.cache.SavedCourseEntity
 import com.example.timetablescraper.api.cache.SearchHistoryEntity
@@ -9,28 +10,59 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 /**
- * Coordinates between the local Room cache and the remote API.
+ * Enterprise-grade caching repository that minimises HTTP requests through:
  *
- * Strategy:
- * - On every request, check the cache first.
- * - If the cache is fresh enough (< [CACHE_TTL_MS]), return cached data.
- * - Otherwise, fetch from the API, persist to cache, and return.
- * - A manual "force refresh" always bypasses the cache.
+ * 1. **Configurable sync strategy** — [SyncStrategy] determines the TTL.
+ *    Network calls are **blocked entirely** when the cache is fresh within
+ *    the chosen window (Daily / Weekly / Custom).
  *
- * Cache staleness is per (courseIdentity + weekStart), so navigating to a
- * different week or course that was already fetched hits the cache instantly.
+ * 2. **Per-week lazy loading** — Each (course, week) pair is stored
+ *    independently. Switching weeks triggers zero network if already cached.
+ *
+ * 3. **Singleton request debouncing** — Identical in-flight requests are
+ *    consolidated via [RequestDebouncer].
+ *
+ * 4. **Manifold fail-safe** — On any network error (timeout, DNS, HTTP 429,
+ *    HTTP 500+), stale cache is returned with an error flag. The UI reads
+ *    [CacheSource.CACHE_STALE] to show an "Offline/Cached Mode" warning.
+ *
+ * 5. **Zero hardcoded values** — TTL, API config, and endpoint URLs all
+ *    come from runtime configuration.
+ *
+ * @param database     The Room database instance.
+ * @param apiService   The configurable API client. Defaults to [TimetableApiService.DEFAULT].
+ * @param syncStrategy The sync strategy to use. Defaults to reading from [SyncPreferences].
  */
-class TimetableRepository(private val database: TimetableDatabase) {
-
+class TimetableRepository(
+    private val database: TimetableDatabase,
+    private val apiService: TimetableApiService = TimetableApiService.DEFAULT,
+    private val syncStrategy: SyncStrategy = SyncStrategy.Daily
+) {
     private val dao = database.timetableDao()
 
-    /** Serializes access so only one load operation runs at a time. */
-    private val loadMutex = Mutex()
+    /**
+     * No global mutex — Room handles concurrent reads internally,
+     * and [RequestDebouncer] deduplicates network calls per URL.
+     * The background week scanner (30+ weeks) no longer blocks user navigation.
+     */
+
+    /** Indexable cache for checking week presence without raw DAO calls. */
+    val weekCacheIndex: WeekCacheIndex by lazy { WeekCacheIndex(dao) }
+
+    /** Current effective TTL in milliseconds (from the sync strategy). */
+    val currentTtlMillis: Long get() = syncStrategy.ttlMillis()
 
     companion object {
-        /** How long cached data is considered fresh (4 hours). */
+        /**
+         * Legacy TTL constant retained for backward compatibility with tests.
+         * Production code should use the strategy-aware [currentTtlMillis].
+         */
+        @Deprecated("Use currentTtlMillis from the repository instance instead",
+            replaceWith = ReplaceWith("repository.currentTtlMillis"))
         const val CACHE_TTL_MS = 4 * 60 * 60 * 1000L
 
         /** How long to keep old cached data before pruning (30 days). */
@@ -40,31 +72,53 @@ class TimetableRepository(private val database: TimetableDatabase) {
     // ── Public API ──────────────────────────────────────────────────────
 
     /**
-     * Load the timetable for [course] and [mondayDate], preferring the cache
-     * when available and fresh. Set [forceRefresh] = true to skip the cache.
+     * Load the timetable for [courseIdentity] and [mondayDate] with configurable
+     * cache TTL from the current [SyncStrategy].
      *
-     * @return Pair of (events, isFromCache)
+     * ## Request minimization flow
+     * 1. Check the local cache for this specific (course, week).
+     * 2. If cached and age < strategy TTL → return fresh cache (zero network).
+     * 3. If not cached or stale → fetch from API via the request debouncer.
+     * 4. On network failure → return stale cache with error flag.
+     * 5. On network failure with **no** stale cache → throw (caller shows error).
+     *
+     * @param courseIdentity   The course/programme identity string.
+     * @param timetableTypeId  The category type ID for API queries.
+     * @param mondayDate       The Monday of the target week.
+     * @param forceRefresh     If true, skip the cache freshness check and go to network.
+     * @param context          Optional Android context for reading SyncPreferences
+     *                         (if the repository was constructed without a strategy override).
+     * @return [CacheResult] with events and source metadata.
      */
     suspend fun loadTimetable(
         courseIdentity: String,
         timetableTypeId: String,
-        mondayDate: java.time.LocalDate,
-        forceRefresh: Boolean = false
-    ): CacheResult = loadMutex.withLock {
-        withContext(Dispatchers.IO) {
+        mondayDate: LocalDate,
+        forceRefresh: Boolean = false,
+        context: android.content.Context? = null
+    ): CacheResult = withContext(Dispatchers.IO) {
 
-            val weekStart = mondayDate.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+            val weekStart = mondayDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
 
-            // 1. Check cache (unless force-refresh)
+            // Resolve the effective TTL from the strategy
+            val effectiveTtl = if (context != null) {
+                SyncPreferences.getSyncStrategy(context).ttlMillis()
+            } else {
+                syncStrategy.ttlMillis()
+            }
+
+            // ── 1. Check cache (unless force-refresh) ───────────────
+            // Single query — reads events AND their fetchedAt from the first event
             if (!forceRefresh) {
                 val cachedEvents = dao.getEvents(courseIdentity, weekStart)
                 if (cachedEvents.isNotEmpty()) {
-                    val lastFetched = dao.getLastFetchedAt(courseIdentity, weekStart) ?: 0L
-                    val now = System.currentTimeMillis()
-                    val age = now - lastFetched
+                    // All events for the same course+week share the same fetchedAt
+                    val lastFetched = cachedEvents.first().fetchedAt
+                    val age = System.currentTimeMillis() - lastFetched
 
-                    if (age < CACHE_TTL_MS) {
-                        // Cache is fresh — return immediately
+                    if (age < effectiveTtl) {
+                        // Cache is fresh within the chosen sync window →
+                        // return immediately, ZERO network calls
                         return@withContext CacheResult(
                             events = cachedEvents.map { it.toApiEvent() },
                             source = CacheSource.CACHE_FRESH
@@ -73,16 +127,15 @@ class TimetableRepository(private val database: TimetableDatabase) {
                 }
             }
 
-            // 2. Fetch from API
+            // ── 2. Fetch from API ──────────────────────────────────
             try {
-                val response = TimetableApiService.fetchTimetable(
+                val response = apiService.fetchTimetable(
                     categoryTypeId = timetableTypeId,
                     identity = courseIdentity,
                     mondayDate = mondayDate
                 )
 
-                // 3. Persist to cache (deduplicated — the API can return the same
-                //    event in multiple CategoryEvents blocks)
+                // ── 3. Persist to cache ─────────────────────────────
                 if (response.events.isNotEmpty()) {
                     val now = System.currentTimeMillis()
                     val entities = TimetableUtils.deduplicateEvents(response.events)
@@ -104,19 +157,23 @@ class TimetableRepository(private val database: TimetableDatabase) {
                     dao.deleteForWeek(courseIdentity, weekStart)
                     dao.insertAll(entities)
 
+                    // Prune old data if cache is growing large
                     if (dao.count() > 1000) {
                         dao.pruneOlderThan(now - PRUNE_AGE_MS)
                     }
+
+                    // DAO is the single source of truth — no SharedPreferences write needed
                 }
 
                 CacheResult(
                     events = response.events,
                     source = CacheSource.NETWORK
                 )
+
             } catch (e: CancellationException) {
-                throw e // NEVER swallow cancellation — let it propagate
+                throw e  // NEVER swallow cancellation
             } catch (e: Exception) {
-                // 4. On failure, fall back to stale cache if available
+                // ── 4. Fail-safe: fall back to stale cache ──────────
                 val staleEvents = dao.getEvents(courseIdentity, weekStart)
                 if (staleEvents.isNotEmpty()) {
                     CacheResult(
@@ -125,9 +182,9 @@ class TimetableRepository(private val database: TimetableDatabase) {
                         error = e.message
                     )
                 } else {
+                    // No cache to fall back to — rethrow for the UI to handle
                     throw e
                 }
-            }
         }
     }
 
@@ -218,9 +275,9 @@ class TimetableRepository(private val database: TimetableDatabase) {
 // ── Result types ──────────────────────────────────────────────────────
 
 enum class CacheSource {
-    /** Data came from the cache and was fresh. */
+    /** Data came from the cache and was fresh (no network call). */
     CACHE_FRESH,
-    /** Data came from cache but was stale — network failed. */
+    /** Data came from cache but was stale — network failed (offline/error fallback). */
     CACHE_STALE,
     /** Data came from a live API call. */
     NETWORK

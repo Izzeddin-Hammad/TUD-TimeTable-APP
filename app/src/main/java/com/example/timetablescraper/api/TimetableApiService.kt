@@ -1,6 +1,5 @@
 package com.example.timetablescraper.api
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -9,6 +8,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -17,33 +18,63 @@ import java.time.temporal.TemporalAdjusters
 import java.util.concurrent.TimeUnit
 
 /**
- * Direct client for the Scientia Publish REST API.
- * No intermediate server needed — the API is public with Anonymous auth.
+ * Configurable client for the Scientia Publish REST API.
+ *
+ * ## Zero hardcoded values
+ * All endpoint UUIDs, base URLs, and identifiers are injected via
+ * [InstitutionConfiguration]. The default config targets TU Dublin.
+ *
+ * ## Request minimization
+ * - [RequestDebouncer] deduplicates concurrent requests to the same endpoint.
+ * - Custom [userAgent] header identifies this as a student utility.
+ * - No automatic retry — the repository handles backoff at the app layer.
  */
-object TimetableApiService {
-
-    private val institution = Institution.DEFAULT
+class TimetableApiService(
+    private val config: InstitutionConfiguration = Institution.DEFAULT
+) {
 
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
+    /** Shared HTTP client.  [retryOnConnectionFailure] is disabled so the
+     *  app layer can control backoff (avoid silent 120s+ hangs on slow servers). */
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
         .build()
 
-    private val headers = mapOf(
+    private val headers: Map<String, String> = mapOf(
         "Authorization" to "Anonymous",
-        "Referer" to institution.referer,
-        "Content-Type" to "application/json",
-        "Accept" to "application/json, text/plain, */*"
+        "Referer"       to config.referer,
+        "User-Agent"    to config.userAgent,
+        "Content-Type"  to "application/json",
+        "Accept"        to "application/json, text/plain, */*"
     )
+
+    private val debouncer = RequestDebouncer.instance
+
+    // ── Cached static parts of the request body (never change per request) ──
+    /** Pre-built Days / TimePeriods / Weeks sections shared across all requests. */
+    private val STATIC_VIEW_OPTIONS: JSONObject = JSONObject().apply {
+        put("Days", JSONArray().apply {
+            for ((i, name) in listOf("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday").withIndex()) {
+                put(JSONObject().apply {
+                    put("Name", name); put("DayOfWeek", i + 1); put("IsDefault", true)
+                })
+            }
+        })
+        put("Weeks", JSONArray())
+        put("TimePeriods", JSONArray().put(JSONObject().apply {
+            put("Description", "All Day"); put("StartTime", "00:00")
+            put("EndTime", "23:59"); put("IsDefault", true)
+        }))
+    }
 
     // ── Search ─────────────────────────────────────────────────────────
 
     suspend fun searchCourses(query: String): SearchResponse = withContext(Dispatchers.IO) {
-        val url = "${institution.apiBase}/CategoryTypes/${institution.programmeTypeId}" +
-                "/Categories/FilterWithCache/${institution.institutionId}" +
-                "?query=${query.replace(" ", "%20")}&pageNumber=1"
+        val url = buildSearchUrl(query)
 
         val request = Request.Builder()
             .url(url)
@@ -51,31 +82,12 @@ object TimetableApiService {
             .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
             .build()
 
-        val response = client.newCall(request).execute()
-        val body = response.body?.string() ?: throw Exception("Empty response")
-        if (!response.isSuccessful) throw Exception("API error ${response.code}: $body")
-
-        val json = JSONObject(body)
-        val resultsArray = json.getJSONArray("Results")
-        val results = mutableListOf<SearchResult>()
-
-        for (i in 0 until resultsArray.length()) {
-            val item = resultsArray.getJSONObject(i)
-            val name = item.optString("Name", "")
-            val progCode = if (name.contains("/")) name.substringBefore("/") else ""
-            results.add(
-                SearchResult(
-                    name = name,
-                    programme_code = progCode,
-                    identity = item.optString("Identity", ""),
-                    type = "Programme",
-                    selection_id = "",
-                    timetable_type_id = "241e4d36-93f2-4938-9e15-d4536fe3b2eb"
-                )
-            )
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string() ?: throw Exception("Empty response from search API")
+            if (!response.isSuccessful)
+                throw TimetableApiException.fromResponse(response.code, body)
+            parseSearchResponse(body)
         }
-
-        SearchResponse(results = results, count = results.size)
     }
 
     // ── Timetable ──────────────────────────────────────────────────────
@@ -85,86 +97,58 @@ object TimetableApiService {
         identity: String,
         mondayDate: LocalDate
     ): TimetableResponse = withContext(Dispatchers.IO) {
-        try {
-            val sunday = mondayDate.plusDays(6)
-            val startRange = mondayDate.minusDays(1).atTime(23, 0).atOffset(ZoneOffset.UTC)
-                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).replace("+00:00", ".000Z")
-            val endRange = sunday.atTime(23, 59, 59).atOffset(ZoneOffset.UTC)
-                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).replace("+00:00", ".000Z")
 
-            val url = "https://scientia-eu-v4-api-d4-01.azurewebsites.net/api/Public/CategoryTypes/Categories/Events/Filter/" +
-                    "50a55ae1-1c87-4dea-bb73-c9e67941e1fd?startRange=$startRange&endRange=$endRange"
+        val debounceKey = buildDebounceKey(categoryTypeId, identity, mondayDate)
 
-            val body = buildEventsBody(categoryTypeId, identity, mondayDate)
+        debouncer.execute(debounceKey) {
+            val bodyJson = buildEventsRequestBody(categoryTypeId, identity, mondayDate)
+            val url = buildEventsUrl(mondayDate)
 
             val request = Request.Builder()
                 .url(url)
-                .post(body.toRequestBody(JSON_MEDIA))
+                .post(bodyJson.toRequestBody(JSON_MEDIA))
                 .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
                 .build()
 
-            val response = client.newCall(request).execute()
-            val respBody = response.body?.string() ?: throw Exception("Empty response")
-            if (!response.isSuccessful) throw Exception("API error ${response.code}")
-
-            val json = JSONObject(respBody)
-            val catEventsArray = json.optJSONArray("CategoryEvents") ?: JSONArray()
-            val events = mutableListOf<ApiEvent>()
-
-            for (i in 0 until catEventsArray.length()) {
-                try {
-                    val catEvent = catEventsArray.getJSONObject(i)
-                    val resultsArray = catEvent.optJSONArray("Results") ?: JSONArray()
-                    for (j in 0 until resultsArray.length()) {
-                        try {
-                            events.add(TimetableParser.parseApiEvent(resultsArray.getJSONObject(j)))
-                        } catch (_: Exception) {
-                            // Skip malformed individual events
-                        }
-                    }
-                } catch (_: Exception) {
-                    // Skip malformed category blocks
-                }
+            client.newCall(request).execute().use { response ->
+                val respBody = response.body?.string()
+                    ?: throw Exception("Empty response from timetable API")
+                if (!response.isSuccessful)
+                    throw TimetableApiException.fromResponse(response.code, respBody)
+                parseTimetableResponse(respBody)
             }
-
-            TimetableResponse(events = events, source = "api", count = events.size)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // Convert any fetch/parse failure into a clean exception
-            throw Exception("Failed to load timetable for this week: ${e.message}", e)
         }
     }
 
-    private fun buildEventsBody(categoryTypeId: String, identity: String, mondayDate: LocalDate): String {
+    // ── URL building ──────────────────────────────────────────────────
+
+    private fun buildSearchUrl(query: String): String {
+        // Properly URL-encode the query to handle special characters
+        val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
+            .replace("+", "%20")
+        return "${config.apiBaseUrl}/CategoryTypes/${config.programmeTypeId}" +
+                "/Categories/FilterWithCache/${config.institutionId}" +
+                "?query=$encoded&pageNumber=1"
+    }
+
+    private fun buildEventsUrl(mondayDate: LocalDate): String {
+        val startRange = formatRangeStart(mondayDate)
+        val endRange = formatRangeEnd(mondayDate.plusDays(6))
+        return "${config.apiBaseUrl}/CategoryTypes/Categories/Events/Filter/${config.institutionId}" +
+                "?startRange=$startRange&endRange=$endRange"
+    }
+
+    // ── Request body (reuses cached static parts) ─────────────────────
+
+    private fun buildEventsRequestBody(
+        categoryTypeId: String,
+        identity: String,
+        mondayDate: LocalDate
+    ): String {
         val sunday = mondayDate.plusDays(6)
-        val startRange = mondayDate.minusDays(1).atTime(23, 0).atOffset(ZoneOffset.UTC)
-            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).replace("+00:00", ".000Z")
-        val endRange = sunday.atTime(23, 59, 59).atOffset(ZoneOffset.UTC)
-            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).replace("+00:00", ".000Z")
 
         return JSONObject().apply {
-            put("ViewOptions", JSONObject().apply {
-                put("Days", JSONArray().apply {
-                    for ((i, name) in listOf("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday").withIndex()) {
-                        put(JSONObject().apply {
-                            put("Name", name); put("DayOfWeek", i + 1); put("IsDefault", true)
-                        })
-                    }
-                })
-                put("Weeks", JSONArray())
-                put("TimePeriods", JSONArray().put(JSONObject().apply {
-                    put("Description", "All Day"); put("StartTime", "00:00"); put("EndTime", "23:59"); put("IsDefault", true)
-                }))
-                put("DatePeriods", JSONArray().put(JSONObject().apply {
-                    put("Description", "Current Range")
-                    put("StartDateTime", startRange)
-                    put("EndDateTime", endRange)
-                    put("IsDefault", true)
-                    put("Type", JSONObject.NULL)
-                    put("Weeks", JSONArray())
-                }))
-            })
+            put("ViewOptions", cloneViewOptions(mondayDate, sunday))
             put("CategoryTypesWithIdentities", JSONArray().put(JSONObject().apply {
                 put("CategoryTypeIdentity", categoryTypeId)
                 put("CategoryIdentities", JSONArray().put(identity))
@@ -175,7 +159,91 @@ object TimetableApiService {
         }.toString()
     }
 
-    fun getCurrentMonday(): LocalDate {
-        return LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    /** Shallow-clone the static ViewOptions and inject the dynamic DatePeriod. */
+    private fun cloneViewOptions(monday: LocalDate, sunday: LocalDate): JSONObject {
+        val vo = JSONObject()
+        STATIC_VIEW_OPTIONS.keys().forEach { key ->
+            vo.put(key, STATIC_VIEW_OPTIONS.get(key))
+        }
+        vo.put("DatePeriods", JSONArray().put(JSONObject().apply {
+            put("Description", "Current Range")
+            put("StartDateTime", formatRangeStart(monday))
+            put("EndDateTime", formatRangeEnd(sunday))
+            put("IsDefault", true)
+            put("Type", JSONObject.NULL)
+            put("Weeks", JSONArray())
+        }))
+        return vo
+    }
+
+    // ── Debounce key ──────────────────────────────────────────────────
+
+    private fun buildDebounceKey(
+        categoryTypeId: String,
+        identity: String,
+        mondayDate: LocalDate
+    ): String = "POST|timetable|${config.institutionId}|$categoryTypeId|$identity|" +
+            mondayDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
+
+    // ── Date formatting ───────────────────────────────────────────────
+
+    private fun formatRangeStart(mondayDate: LocalDate): String {
+        return mondayDate.minusDays(1).atTime(23, 0).atOffset(ZoneOffset.UTC)
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).replace("+00:00", ".000Z")
+    }
+
+    private fun formatRangeEnd(sunday: LocalDate): String {
+        return sunday.atTime(23, 59, 59).atOffset(ZoneOffset.UTC)
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).replace("+00:00", ".000Z")
+    }
+
+    // ── Response parsing ──────────────────────────────────────────────
+
+    private fun parseSearchResponse(body: String): SearchResponse {
+        val json = JSONObject(body)
+        val resultsArray = json.getJSONArray("Results")
+        val results = mutableListOf<SearchResult>()
+
+        for (i in 0 until resultsArray.length()) {
+            val item = resultsArray.getJSONObject(i)
+            val name = item.optString("Name", "")
+            val progCode = if (name.contains("/")) name.substringBefore("/") else ""
+            results.add(SearchResult(
+                name = name, programme_code = progCode,
+                identity = item.optString("Identity", ""),
+                type = "Programme", selection_id = "",
+                timetable_type_id = config.programmeTypeId
+            ))
+        }
+        return SearchResponse(results = results, count = results.size)
+    }
+
+    private fun parseTimetableResponse(body: String): TimetableResponse {
+        val json = JSONObject(body)
+        val catEventsArray = json.optJSONArray("CategoryEvents") ?: JSONArray()
+        val events = mutableListOf<ApiEvent>()
+
+        for (i in 0 until catEventsArray.length()) {
+            try {
+                val catEvent = catEventsArray.getJSONObject(i)
+                val resultsArray = catEvent.optJSONArray("Results") ?: JSONArray()
+                for (j in 0 until resultsArray.length()) {
+                    try {
+                        events.add(TimetableParser.parseApiEvent(resultsArray.getJSONObject(j)))
+                    } catch (_: Exception) { /* skip malformed event */ }
+                }
+            } catch (_: Exception) { /* skip malformed block */ }
+        }
+        return TimetableResponse(events = events, source = "api", count = events.size)
+    }
+
+    // ── Static helpers ────────────────────────────────────────────────
+
+    companion object {
+        val DEFAULT: TimetableApiService by lazy { TimetableApiService() }
+
+        fun getCurrentMonday(): LocalDate {
+            return LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        }
     }
 }

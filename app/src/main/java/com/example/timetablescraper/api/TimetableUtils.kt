@@ -7,7 +7,6 @@ import java.time.temporal.TemporalAdjusters
 
 /**
  * Utilities for converting API events to UI models and date calculations.
- * Extracted from TimetableScreen so they can be unit-tested independently.
  */
 object TimetableUtils {
 
@@ -15,7 +14,7 @@ object TimetableUtils {
 
     /**
      * Convert an API event into a UI-friendly TimetableEvent.
-     * Fully crash-proof — returns a fallback event if parsing fails.
+     * Crash-proof — returns a fallback event if parsing fails.
      */
     fun toUiEvent(event: ApiEvent, weekStart: String): TimetableEvent {
         return try {
@@ -26,7 +25,6 @@ object TimetableUtils {
             else if (event.end.length >= 5) event.end.substring(11.coerceAtMost(event.end.length))
             else "??:??"
 
-            // Extract day name from the ISO start date
             val dayName = if (event.start.length >= 10) {
                 try {
                     val date = LocalDate.parse(event.start.substring(0, 10))
@@ -53,8 +51,7 @@ object TimetableUtils {
                 weekStart = weekStart,
                 group = event.group
             )
-        } catch (e: Exception) {
-            // Should never reach here, but guard against any unforeseen parsing bug
+        } catch (_: Exception) {
             TimetableEvent(
                 moduleCode = event.module_code.ifBlank { "?" },
                 title = event.title.ifBlank { "Unknown event" },
@@ -72,18 +69,15 @@ object TimetableUtils {
         }
     }
 
-    /** Get the Monday of the current week (or the closest past Monday). */
     fun getCurrentMonday(today: LocalDate = LocalDate.now()): LocalDate {
         return today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     }
 
-    /** Format a day's date for display: e.g. "Oct 6" */
     fun formatDayDate(monday: LocalDate, dayOffset: Int): String {
         val date = monday.plusDays(dayOffset.toLong())
         return date.format(DateTimeFormatter.ofPattern("MMM d"))
     }
 
-    /** Format the week range for display: e.g. "Oct 6 – Oct 12, 2025" */
     fun formatWeekRange(monday: LocalDate): String {
         val sunday = monday.plusDays(6)
         val startStr = monday.format(DateTimeFormatter.ofPattern("MMM d"))
@@ -91,18 +85,12 @@ object TimetableUtils {
         return "$startStr – $endStr"
     }
 
-    /**
-     * Generate all Monday dates for the current academic year (Sep – Apr).
-     * This drives the horizontal week picker.
-     */
     fun generateAcademicWeeks(today: LocalDate = LocalDate.now()): List<LocalDate> {
-        // Academic year starts in September of the current or previous calendar year
         val academicYearStart = if (today.monthValue >= 9) {
             LocalDate.of(today.year, 9, 1)
         } else {
             LocalDate.of(today.year - 1, 9, 1)
         }
-        // End in April of the next calendar year
         val academicYearEnd = if (today.monthValue >= 9) {
             LocalDate.of(today.year + 1, 4, 30)
         } else {
@@ -119,28 +107,24 @@ object TimetableUtils {
     }
 
     /**
-     * Deduplicate a list of ApiEvents.  The same physical class can appear
-     * multiple times in the API response (once per CategoryEvents view) with
-     * varying metadata — different room strings, missing module_code, etc.
+     * Deduplicate events.  O(n log n) single sort, no redundant passes.
      *
-     * Key:  normalised start time  |  title  |  lecturer
-     * These three fields are the most stable across all API views.
-     *
-     * Prefers the copy with the richest group + lecturer metadata,
-     * then sorts chronologically.
+     * Key: normalised start | title | lecturer
+     * Prefers the richest copy (group + lecturer metadata) per distinct entity.
      */
     fun deduplicateEvents(events: List<ApiEvent>): List<ApiEvent> {
+        if (events.size <= 1) return events
+
+        // Single sort: richest first → first occurrence wins in distinctBy
         return events
-            .sortedByDescending { it.group.length + it.lecturer.length }
-            .distinctBy {
-                val s = it.start.trim().removeSuffix("Z")
-                    .substringBeforeLast(".000")
-                "${s}|${it.title.trim()}|${it.lecturer.trim()}"
+            .sortedWith(compareByDescending<ApiEvent> { it.group.length + it.lecturer.length }
+                .thenBy { it.start })
+            .distinctBy { e ->
+                val s = e.start.trim().removeSuffix("Z").substringBefore(".000")
+                "${s}|${e.title.trim()}|${e.lecturer.trim()}"
             }
-            .sortedBy { it.start }
     }
 
-    /** Safe date formatting — returns "?" on any failure. */
     fun safeFormat(date: LocalDate, formatter: DateTimeFormatter): String {
         return try { date.format(formatter) } catch (_: Exception) { "?" }
     }

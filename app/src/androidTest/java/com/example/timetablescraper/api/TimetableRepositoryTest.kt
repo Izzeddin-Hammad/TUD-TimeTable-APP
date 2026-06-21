@@ -90,9 +90,10 @@ class TimetableRepositoryTest {
 
     @Test
     fun `force refresh bypasses cache and hits network`() = runBlocking {
-        // Pre-populate stale cache
+        // Pre-populate stale cache (older than the 24h default strategy TTL)
         val dao = database.timetableDao()
-        val oldTime = System.currentTimeMillis() - TimetableRepository.CACHE_TTL_MS - 10000
+        val ttl = repository.currentTtlMillis
+        val oldTime = System.currentTimeMillis() - ttl - 10000
         dao.insertAll(listOf(
             CachedEventEntity(
                 courseIdentity = testIdentity, weekStart = "2025-10-06",
@@ -121,7 +122,8 @@ class TimetableRepositoryTest {
     @Test
     fun `network failure falls back to stale cache`() = runBlocking {
         val dao = database.timetableDao()
-        val oldTime = System.currentTimeMillis() - TimetableRepository.CACHE_TTL_MS - 10000
+        val ttl = repository.currentTtlMillis
+        val oldTime = System.currentTimeMillis() - ttl - 10000
         dao.insertAll(listOf(
             CachedEventEntity(
                 courseIdentity = testIdentity, weekStart = "2025-10-06",

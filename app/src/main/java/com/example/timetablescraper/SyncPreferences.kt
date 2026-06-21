@@ -2,20 +2,101 @@ package com.example.timetablescraper
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.timetablescraper.api.SyncStrategy
 
 /**
- * Simple preferences wrapper for sync and cache settings.
- * Uses SharedPreferences — lightweight enough for a student app.
+ * Preferences wrapper for sync and cache settings.
+ *
+ * Now supports the three-mode [SyncStrategy] pattern:
+ * - [SyncStrategy.Daily]   → 24h TTL (token: "DAILY")
+ * - [SyncStrategy.Weekly]  → 7d TTL  (token: "WEEKLY")
+ * - [SyncStrategy.Custom]  → user-defined (token: "CUSTOM:VALUE:UNIT")
+ *
+ * Legacy [getSyncIntervalHours] / [setSyncIntervalHours] are retained for
+ * backward compatibility but are superseded by the [syncStrategy] property.
  */
 object SyncPreferences {
 
     private const val PREFS_NAME = "timetable_sync_prefs"
+
+    // ── Legacy keys (deprecated but retained for backward compat) ──────
     private const val KEY_AUTO_SYNC = "auto_sync_enabled"
     private const val KEY_SYNC_INTERVAL_HOURS = "sync_interval_hours"
     private const val KEY_LAST_SYNC_MANUAL = "last_manual_sync"
 
+    // ── New sync-strategy keys ────────────────────────────────────────
+    private const val KEY_SYNC_STRATEGY_TOKEN = "sync_strategy_token"
+    private const val KEY_CUSTOM_INTERVAL_VALUE = "custom_interval_value"
+    private const val KEY_CUSTOM_INTERVAL_UNIT = "custom_interval_unit"
+
     private fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Sync Strategy (primary — supersedes the old interval-hours model)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Get the current [SyncStrategy].
+     *
+     * Migrates from the legacy [KEY_SYNC_INTERVAL_HOURS] if no strategy
+     * token has been saved yet — a value of 24h becomes [SyncStrategy.Daily],
+     * anything else becomes [SyncStrategy.Daily] as the safe default.
+     */
+    fun getSyncStrategy(context: Context): SyncStrategy {
+        val token = prefs(context).getString(KEY_SYNC_STRATEGY_TOKEN, null)
+        if (token != null) return SyncStrategy.fromToken(token)
+
+        // Legacy migration: if we have an old interval value, use it
+        val legacyHours = prefs(context).getInt(KEY_SYNC_INTERVAL_HOURS, 0)
+        if (legacyHours > 0) {
+            return when (legacyHours) {
+                24  -> SyncStrategy.Daily
+                168 -> SyncStrategy.Weekly   // 7 * 24
+                else -> SyncStrategy.Custom(legacyHours, java.util.concurrent.TimeUnit.HOURS)
+            }
+        }
+
+        return SyncStrategy.Daily  // safe default
+    }
+
+    /**
+     * Persist a new [SyncStrategy].
+     *
+     * For [SyncStrategy.Custom], also stores the value and unit separately
+     * for easy UI access without parsing the token.
+     */
+    fun setSyncStrategy(context: Context, strategy: SyncStrategy) {
+        prefs(context).edit().apply {
+            putString(KEY_SYNC_STRATEGY_TOKEN, strategy.toToken())
+            if (strategy is SyncStrategy.Custom) {
+                putInt(KEY_CUSTOM_INTERVAL_VALUE, strategy.value)
+                putString(KEY_CUSTOM_INTERVAL_UNIT, strategy.unit.name)
+            } else {
+                remove(KEY_CUSTOM_INTERVAL_VALUE)
+                remove(KEY_CUSTOM_INTERVAL_UNIT)
+            }
+            apply()
+        }
+    }
+
+    /**
+     * Get the custom interval value (for pre-filling the UI input field).
+     * Returns 1 if no custom value has been stored.
+     */
+    fun getCustomIntervalValue(context: Context): Int =
+        prefs(context).getInt(KEY_CUSTOM_INTERVAL_VALUE, 1)
+
+    /**
+     * Get the custom interval unit name (for pre-filling the UI dropdown).
+     * Returns "HOURS" if not set.
+     */
+    fun getCustomIntervalUnit(context: Context): String =
+        prefs(context).getString(KEY_CUSTOM_INTERVAL_UNIT, "HOURS") ?: "HOURS"
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Legacy methods (retained for backward compatibility)
+    // ═══════════════════════════════════════════════════════════════════
 
     /** Whether automatic background sync is enabled (default: true). */
     fun isAutoSyncEnabled(context: Context): Boolean =
@@ -25,12 +106,31 @@ object SyncPreferences {
         prefs(context).edit().putBoolean(KEY_AUTO_SYNC, enabled).apply()
     }
 
-    /** Sync interval in hours (6, 12, or 24). */
-    fun getSyncIntervalHours(context: Context): Int =
-        prefs(context).getInt(KEY_SYNC_INTERVAL_HOURS, 6)
+    /**
+     * Legacy sync interval in hours.
+     *
+     * @deprecated Use [getSyncStrategy] instead. This method reads the
+     *   raw hours-storage for backward compatibility with the Settings UI
+     *   but the new code should use the strategy model.
+     */
+    @Deprecated("Use getSyncStrategy() instead")
+    fun getSyncIntervalHours(context: Context): Int {
+        val strategy = getSyncStrategy(context)
+        return when (strategy) {
+            is SyncStrategy.Daily  -> 24
+            is SyncStrategy.Weekly -> 168
+            is SyncStrategy.Custom -> strategy.value
+        }
+    }
 
+    @Deprecated("Use setSyncStrategy() instead")
     fun setSyncIntervalHours(context: Context, hours: Int) {
-        prefs(context).edit().putInt(KEY_SYNC_INTERVAL_HOURS, hours).apply()
+        val strategy = when (hours) {
+            24  -> SyncStrategy.Daily
+            168 -> SyncStrategy.Weekly
+            else -> SyncStrategy.Custom(hours, java.util.concurrent.TimeUnit.HOURS)
+        }
+        setSyncStrategy(context, strategy)
     }
 
     /** Timestamp of the last manually-triggered sync (epoch millis). */
@@ -78,17 +178,6 @@ object SyncPreferences {
         return Triple(id, name, typeId)
     }
 
-    // ── Last selected group per course ───────────────────────────────
-
-    private const val KEY_LAST_GROUP_PREFIX = "last_group_"
-
-    fun getLastGroup(context: Context, courseIdentity: String): String? =
-        prefs(context).getString(KEY_LAST_GROUP_PREFIX + courseIdentity, null)
-
-    fun setLastGroup(context: Context, courseIdentity: String, group: String) {
-        prefs(context).edit().putString(KEY_LAST_GROUP_PREFIX + courseIdentity, group).apply()
-    }
-
     fun setStarredCourse(context: Context, identity: String?, name: String?, typeId: String?) {
         prefs(context).edit().apply {
             if (identity != null) {
@@ -102,5 +191,84 @@ object SyncPreferences {
             }
             apply()
         }
+    }
+
+    // ── Last selected group per course ───────────────────────────────
+
+    private const val KEY_LAST_GROUP_PREFIX = "last_group_"
+
+    fun getLastGroup(context: Context, courseIdentity: String): String? =
+        prefs(context).getString(KEY_LAST_GROUP_PREFIX + courseIdentity, null)
+
+    fun setLastGroup(context: Context, courseIdentity: String, group: String) {
+        prefs(context).edit().putString(KEY_LAST_GROUP_PREFIX + courseIdentity, group).apply()
+    }
+
+    // ── Course view state (persists across app restarts) ─────────────
+
+    private const val KEY_VIEW_SEMESTER_PREFIX = "view_semester_"
+    private const val KEY_VIEW_WEEK_PREFIX = "view_week_"
+    private const val KEY_VIEW_SHOW_ALL_PREFIX = "view_showall_"
+    private const val KEY_VIEW_DAY_PREFIX = "view_day_"
+
+    /** Save the view state for a course so it survives app restarts. */
+    fun saveCourseViewState(
+        context: Context,
+        courseIdentity: String,
+        semester: Int,
+        weekStart: String,
+        showAll: Boolean,
+        dayIndex: Int
+    ) {
+        prefs(context).edit().apply {
+            putInt("$KEY_VIEW_SEMESTER_PREFIX$courseIdentity", semester)
+            putString("$KEY_VIEW_WEEK_PREFIX$courseIdentity", weekStart)
+            putBoolean("$KEY_VIEW_SHOW_ALL_PREFIX$courseIdentity", showAll)
+            putInt("$KEY_VIEW_DAY_PREFIX$courseIdentity", dayIndex)
+            apply()
+        }
+    }
+
+    /** Restore the saved semester for a course, or 0 if never viewed. */
+    fun getSavedSemester(context: Context, courseIdentity: String): Int =
+        prefs(context).getInt("$KEY_VIEW_SEMESTER_PREFIX$courseIdentity", 0)
+
+    /** Restore the saved week for a course, or null if never viewed. */
+    fun getSavedWeek(context: Context, courseIdentity: String): String? =
+        prefs(context).getString("$KEY_VIEW_WEEK_PREFIX$courseIdentity", null)
+
+    /** Restore the saved showAll (All toggle) for a course, or false if never viewed. */
+    fun getSavedShowAll(context: Context, courseIdentity: String): Boolean =
+        prefs(context).getBoolean("$KEY_VIEW_SHOW_ALL_PREFIX$courseIdentity", false)
+
+    /** Restore the saved day index for a course, or 0 (Monday) if never viewed. */
+    fun getSavedDayIndex(context: Context, courseIdentity: String): Int =
+        prefs(context).getInt("$KEY_VIEW_DAY_PREFIX$courseIdentity", 0)
+
+    /** Delete all view state for a course (e.g. when a course is removed). */
+    fun clearCourseViewState(context: Context, courseIdentity: String) {
+        prefs(context).edit().apply {
+            remove("$KEY_VIEW_SEMESTER_PREFIX$courseIdentity")
+            remove("$KEY_VIEW_WEEK_PREFIX$courseIdentity")
+            remove("$KEY_VIEW_SHOW_ALL_PREFIX$courseIdentity")
+            remove("$KEY_VIEW_DAY_PREFIX$courseIdentity")
+            apply()
+        }
+    }
+
+    // ── Week Cache Polling (lazy-loading) ───────────────────────────
+
+    private const val KEY_CACHED_WEEK_PREFIX = "cached_week_"
+
+    /** Mark a specific (course, weekStart) pair as having been fetched. */
+    internal fun markWeekCached(context: Context, courseIdentity: String, weekStart: String) {
+        prefs(context).edit()
+            .putLong("$KEY_CACHED_WEEK_PREFIX$courseIdentity|$weekStart", System.currentTimeMillis())
+            .apply()
+    }
+
+    /** Check if a specific (course, weekStart) pair has been previously fetched. */
+    internal fun isWeekCached(context: Context, courseIdentity: String, weekStart: String): Boolean {
+        return prefs(context).contains("$KEY_CACHED_WEEK_PREFIX$courseIdentity|$weekStart")
     }
 }

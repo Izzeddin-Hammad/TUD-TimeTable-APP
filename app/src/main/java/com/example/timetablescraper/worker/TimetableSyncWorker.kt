@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Log
 import androidx.work.*
 import com.example.timetablescraper.SyncPreferences
+import com.example.timetablescraper.api.InstitutionConfiguration
+import com.example.timetablescraper.api.Institution
+import com.example.timetablescraper.api.SyncStrategy
 import com.example.timetablescraper.api.TimetableApiService
 import com.example.timetablescraper.api.TimetableUtils
 import com.example.timetablescraper.api.cache.CachedEventEntity
@@ -17,11 +20,20 @@ import java.time.temporal.TemporalAdjusters
 import java.util.concurrent.TimeUnit
 
 /**
- * Periodic background worker that fetches the current week's timetable
- * for previously-viewed courses and caches the results.
+ * Periodic background worker that refreshes cached timetables.
  *
- * This runs even when the app is in the background (WorkManager handles
- * Doze / battery optimisation).
+ * ## Notifications
+ * - Shows a foreground notification while syncing (via [setForeground]).
+ * - Posts a completion notification with success/fail status and timestamp.
+ *
+ * ## Strategy-aware scheduling
+ * The sync interval respects the user's chosen [SyncStrategy].
+ *
+ * ## Zero hardcoded values
+ * API endpoints and identifiers are resolved through [InstitutionConfiguration].
+ *
+ * ## Fail-safe
+ * Individual course failures are caught; one failed course does not block others.
  */
 class TimetableSyncWorker(
     context: Context,
@@ -31,13 +43,10 @@ class TimetableSyncWorker(
     companion object {
         private const val TAG = "TimetableSyncWorker"
         const val UNIQUE_WORK_NAME = "timetable_periodic_sync"
-        private const val PROGRAMME_TYPE_ID = "241e4d36-93f2-4938-9e15-d4536fe3b2eb"
 
         /**
-         * Schedule periodic background sync based on user preferences.
-         * If auto-sync is disabled, cancels existing work instead.
-         *
-         * Existing work with the same [UNIQUE_WORK_NAME] is replaced.
+         * Schedule periodic background sync based on the user's [SyncStrategy].
+         * If auto-sync is disabled, cancels existing work.
          */
         fun schedule(context: Context) {
             if (!SyncPreferences.isAutoSyncEnabled(context)) {
@@ -45,14 +54,22 @@ class TimetableSyncWorker(
                 return
             }
 
-            val intervalHours = SyncPreferences.getSyncIntervalHours(context)
+            val strategy = SyncPreferences.getSyncStrategy(context)
+            val intervalMillis = strategy.ttlMillis()
+            val intervalMinutes = (intervalMillis / 60_000).coerceAtLeast(15L)
+            val intervalHours = when {
+                intervalMinutes < 60    -> 1L
+                intervalMinutes < 1440  -> intervalMinutes / 60
+                else                    -> intervalMinutes / 60
+            }.coerceAtLeast(1L)
+
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
             val request = PeriodicWorkRequestBuilder<TimetableSyncWorker>(
-                intervalHours.toLong(), TimeUnit.HOURS,
-                15, TimeUnit.MINUTES  // flex interval
+                intervalHours, TimeUnit.HOURS,
+                15, TimeUnit.MINUTES
             )
                 .setConstraints(constraints)
                 .setBackoffCriteria(
@@ -68,7 +85,7 @@ class TimetableSyncWorker(
                     request
                 )
 
-            Log.d(TAG, "Scheduled periodic sync every $intervalHours hours")
+            Log.d(TAG, "Scheduled periodic sync every $intervalHours hours (strategy: ${strategy.displayName()})")
         }
 
         /** Cancel all scheduled sync work. */
@@ -78,7 +95,7 @@ class TimetableSyncWorker(
             Log.d(TAG, "Cancelled periodic sync")
         }
 
-        /** Run a one-off sync immediately (for the "Sync Now" button). */
+        /** Run a one-off sync immediately (for "Sync Now"). */
         fun syncNow(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -101,11 +118,16 @@ class TimetableSyncWorker(
         try {
             val database = TimetableDatabase.getInstance(applicationContext)
             val dao = database.timetableDao()
+            val apiService = TimetableApiService()
 
-            // Get distinct course identities that have been cached before
             val courseIdentities = dao.getDistinctCourseIdentities()
             if (courseIdentities.isEmpty()) {
                 Log.d(TAG, "No courses cached yet — nothing to sync")
+                SyncNotificationManager.postCompletionNotification(
+                    applicationContext,
+                    success = true,
+                    summary = "No courses to sync yet"
+                )
                 return@withContext Result.success()
             }
 
@@ -114,18 +136,19 @@ class TimetableSyncWorker(
             val weekStart = currentMonday.format(DateTimeFormatter.ISO_LOCAL_DATE)
             val now = System.currentTimeMillis()
             var syncedCount = 0
+            var failedCount = 0
+
+            val config = Institution.DEFAULT
 
             for (courseIdentity in courseIdentities) {
                 try {
-                    // Fetch current week for each known course
-                    val response = TimetableApiService.fetchTimetable(
-                        categoryTypeId = PROGRAMME_TYPE_ID,
+                    val response = apiService.fetchTimetable(
+                        categoryTypeId = config.programmeTypeId,
                         identity = courseIdentity,
                         mondayDate = currentMonday
                     )
 
                     if (response.events.isNotEmpty()) {
-                        // Replace cache
                         dao.deleteForWeek(courseIdentity, weekStart)
                         val entities = TimetableUtils.deduplicateEvents(response.events)
                             .map { event ->
@@ -148,15 +171,35 @@ class TimetableSyncWorker(
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Sync failed for course $courseIdentity: ${e.message}")
-                    // Continue with other courses
+                    failedCount++
                 }
             }
 
-            Log.d(TAG, "Sync complete — updated $syncedCount courses")
+            val success = failedCount == 0
+            val summary = if (syncedCount > 0) {
+                "Updated $syncedCount course(s)" +
+                    if (failedCount > 0) ", $failedCount failed" else ""
+            } else {
+                "No new data found"
+            }
+
+            Log.d(TAG, "Sync complete — $summary")
+            SyncNotificationManager.postCompletionNotification(
+                applicationContext,
+                success = success,
+                summary = summary,
+                errorMessage = if (!success) "$failedCount course(s) failed" else null
+            )
             Result.success()
 
         } catch (e: Exception) {
             Log.e(TAG, "Sync worker failed", e)
+            SyncNotificationManager.postCompletionNotification(
+                applicationContext,
+                success = false,
+                summary = "Sync failed",
+                errorMessage = e.message
+            )
             Result.retry()
         }
     }

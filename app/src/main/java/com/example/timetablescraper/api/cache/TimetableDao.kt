@@ -68,11 +68,29 @@ interface TimetableDao {
     @Query("SELECT COUNT(DISTINCT weekStart || '|' || courseIdentity) FROM cached_events")
     suspend fun countDistinctWeeks(): Int
 
+    // ── Week Cache Index queries ─────────────────────────────────────
+
+    /** Count events for a specific course + week (used by WeekCacheIndex). */
+    @Query("SELECT COUNT(*) FROM cached_events WHERE courseIdentity = :courseIdentity AND weekStart = :weekStart")
+    suspend fun countEvents(courseIdentity: String, weekStart: String): Int
+
+    /** Count distinct weeks cached for a specific course. */
+    @Query("SELECT COUNT(DISTINCT weekStart) FROM cached_events WHERE courseIdentity = :courseIdentity")
+    suspend fun countWeeksForCourse(courseIdentity: String): Int
+
+    /** Get all distinct weekStart values cached for a specific course. */
+    @Query("SELECT DISTINCT weekStart FROM cached_events WHERE courseIdentity = :courseIdentity ORDER BY weekStart ASC")
+    suspend fun getDistinctWeekStarts(courseIdentity: String): List<String>
+
     // ── Saved courses ──────────────────────────────────────────────────
 
     /** Get all saved courses, newest first. */
     @Query("SELECT * FROM saved_courses ORDER BY savedAt DESC")
     suspend fun getSavedCourses(): List<SavedCourseEntity>
+
+    /** Get a saved course by identity (for resolving course name). */
+    @Query("SELECT * FROM saved_courses WHERE identity = :identity LIMIT 1")
+    suspend fun getSavedCourse(identity: String): SavedCourseEntity?
 
     /** Check if a course is saved. */
     @Query("SELECT EXISTS(SELECT 1 FROM saved_courses WHERE identity = :identity)")
