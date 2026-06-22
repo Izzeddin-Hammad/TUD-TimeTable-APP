@@ -281,7 +281,7 @@ fun SearchScreen(
                                         fetchedGroups = emptyList()
                                     }
                                 },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.minimumInteractiveComponentSize()
                             ) {
                                 if (fetchingGroups) {
                                     CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
@@ -354,7 +354,7 @@ fun SearchScreen(
                                         repository.clearSearchHistory()
                                         historyEntries = repository.getRecentSearches()
                                     }
-                                }, modifier = Modifier.size(32.dp)) {
+                                }) {
                                     Icon(Icons.Default.Close, "Remove", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                                 }
                             }

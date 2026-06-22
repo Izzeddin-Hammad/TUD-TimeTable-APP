@@ -90,9 +90,6 @@ fun TimetableScreen(
     val app = context.applicationContext as TimetableApplication
     val repository = app.repository
 
-    // Intercept system back gesture / button
-    BackHandler(onBack = onBack)
-
     // ── State (persisted across app restarts via SharedPreferences) ─────
     // Restore saved view state for this course (or use defaults for new courses)
     val savedWeekStr = SyncPreferences.getSavedWeek(context, selectedCourse.identity)
@@ -140,6 +137,7 @@ fun TimetableScreen(
         }
     }
     var weekMenuExpanded by remember { mutableStateOf(false) }
+    var groupMenuExpanded by remember { mutableStateOf(false) }
     var emptyWeeks by rememberSaveable { mutableStateOf(setOf<String>()) }
     var activeWeeks by rememberSaveable { mutableStateOf(setOf<String>()) }
     var failedWeeks by remember { mutableStateOf(setOf<String>()) }
@@ -340,6 +338,15 @@ fun TimetableScreen(
                 val firstDay = displayEvents.minByOrNull { it.dayIndex }?.dayIndex ?: 0
                 selectedDayIndex = firstDay.coerceIn(0, 4)
             }
+        }
+    }
+
+    // ── Back handler: close dropdowns before navigating away ───────────
+    BackHandler {
+        when {
+            weekMenuExpanded -> weekMenuExpanded = false
+            groupMenuExpanded -> groupMenuExpanded = false
+            else -> onBack()
         }
     }
 
@@ -649,8 +656,6 @@ fun TimetableScreen(
                     .sorted()
             }
             if (availableGroups.size > 1) {
-                var groupMenuExpanded by remember { mutableStateOf(false) }
-
                 ExposedDropdownMenuBox(
                     expanded = groupMenuExpanded,
                     onExpandedChange = { groupMenuExpanded = it },
@@ -694,9 +699,12 @@ fun TimetableScreen(
                                 },
                                 contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
                                 trailingIcon = {
-                                    IconButton(onClick = {
-                                        SyncPreferences.setLastGroup(context, selectedCourse.identity, group)
-                                    }) {
+                                    IconButton(
+                                        onClick = {
+                                            SyncPreferences.setLastGroup(context, selectedCourse.identity, group)
+                                        },
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    ) {
                                         Icon(
                                             if (isPinned) Icons.Filled.Star else Icons.Filled.StarBorder,
                                             "Set as default",
@@ -835,17 +843,14 @@ fun TimetableScreen(
 @Composable
 private fun CacheStatusBar(source: CacheSource) {
     val (text, color) = when (source) {
-        CacheSource.CACHE_FRESH -> "📦 Loaded from cache" to Color(0xFF4CAF50)
-        CacheSource.CACHE_STALE -> "⚠️ Offline / Cached Mode — data may be outdated" to Color(0xFFFF9800)
-        CacheSource.NETWORK -> "🌐 Updated from server" to Color(0xFF2196F3)
+        CacheSource.CACHE_FRESH -> "📦 Loaded from cache" to MaterialTheme.colorScheme.primary
+        CacheSource.CACHE_STALE -> "⚠️ Offline / Cached Mode — data may be outdated" to MaterialTheme.colorScheme.error
+        CacheSource.NETWORK -> "🌐 Updated from server" to MaterialTheme.colorScheme.tertiary
     }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = when (source) {
-            CacheSource.CACHE_STALE -> Color(0xFFFF9800).copy(alpha = 0.15f)
-            else -> color.copy(alpha = 0.1f)
-        }
+        color = color.copy(alpha = 0.12f)
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
             Text(

@@ -47,9 +47,6 @@ fun SettingsScreen(
     val app = context.applicationContext as TimetableApplication
     val coroutineScope = rememberCoroutineScope()
 
-    // Intercept system back gesture / button
-    BackHandler(onBack = onBack)
-
     // ── State ──────────────────────────────────────────────────────────
     var autoSyncEnabled by remember {
         mutableStateOf(SyncPreferences.isAutoSyncEnabled(context))
@@ -71,6 +68,8 @@ fun SettingsScreen(
     var savedCourses by remember { mutableStateOf<List<SavedCourseEntity>>(emptyList()) }
     var cachedCourseIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var cachedCourseNames by remember { mutableStateOf<List<com.example.timetablescraper.api.cache.TimetableDao.CourseNamePair>>(emptyList()) }
+    var firstWeekExpanded by remember { mutableStateOf(false) }
+    var sem2WeekExpanded by remember { mutableStateOf(false) }
 
     /** Refresh the per-course cache list from the database. */
     fun refreshCachedCourses() {
@@ -125,6 +124,15 @@ fun SettingsScreen(
     fun formatTimestamp(millis: Long?): String {
         if (millis == null || millis == 0L) return "Never"
         return dateFormat.format(Date(millis))
+    }
+
+    // ── Back handler: close dropdowns before navigating away ───────────
+    BackHandler {
+        when {
+            firstWeekExpanded -> firstWeekExpanded = false
+            sem2WeekExpanded -> sem2WeekExpanded = false
+            else -> onBack()
+        }
     }
 
     // ── UI ─────────────────────────────────────────────────────────────
@@ -313,8 +321,6 @@ fun SettingsScreen(
             )
 
             // ── First academic week ──────────────────────────────────────
-            var firstWeekExpanded by remember { mutableStateOf(false) }
-            var sem2WeekExpanded by remember { mutableStateOf(false) }
             val allWeeks = remember { TimetableUtils.generateAcademicWeeks() }
             var firstWeekStr by remember { mutableStateOf(SyncPreferences.getFirstWeekMonday(context)) }
             var sem2WeekStr by remember { mutableStateOf(SyncPreferences.getSem2StartMonday(context)) }
