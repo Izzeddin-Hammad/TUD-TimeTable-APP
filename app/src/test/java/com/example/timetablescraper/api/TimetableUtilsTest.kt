@@ -262,6 +262,56 @@ class TimetableUtilsTest {
         assertEquals("Oct 6", TimetableUtils.safeFormat(date, formatter))
     }
 
+    // ── deduplicateEvents ──────────────────────────────────────────────
+
+    @Test
+    fun `deduplicateEvents removes exact duplicates`() {
+        val events = listOf(
+            ApiEvent("TU859", "Maths", "Lec", "Dr. A", "A201", "2025-10-07T10:00:00", "2025-10-07T12:00:00", "A"),
+            ApiEvent("TU859", "Maths", "Lec", "Dr. A", "A201", "2025-10-07T10:00:00", "2025-10-07T12:00:00", "A"),
+        )
+        val result = TimetableUtils.deduplicateEvents(events)
+        assertEquals(1, result.size)
+    }
+
+    @Test
+    fun `deduplicateEvents preserves unique events`() {
+        val events = listOf(
+            ApiEvent("TU859", "Maths", "Lec", "Dr. A", "A201", "2025-10-07T10:00:00", "2025-10-07T12:00:00", "A"),
+            ApiEvent("TU859", "Physics", "Lab", "Dr. B", "B305", "2025-10-07T14:00:00", "2025-10-07T16:00:00", "B"),
+        )
+        val result = TimetableUtils.deduplicateEvents(events)
+        assertEquals(2, result.size)
+    }
+
+    @Test
+    fun `deduplicateEvents prefers richer copy`() {
+        // When same event appears with different amounts of metadata,
+        // the richer copy (more group info, same lecturer+title+start) should be kept
+        val events = listOf(
+            ApiEvent("TU859", "Maths", "Lec", "Dr. Smith", "", "2025-10-07T10:00:00", "2025-10-07T12:00:00", ""),
+            ApiEvent("TU859", "Maths", "Lec", "Dr. Smith", "A201", "2025-10-07T10:00:00", "2025-10-07T12:00:00", "A"),
+        )
+        val result = TimetableUtils.deduplicateEvents(events)
+        assertEquals(1, result.size)
+        assertEquals("A", result[0].group) // richer copy kept
+    }
+
+    @Test
+    fun `deduplicateEvents handles single event`() {
+        val events = listOf(
+            ApiEvent("TU859", "Maths", "Lec", "Dr. A", "A201", "2025-10-07T10:00:00", "2025-10-07T12:00:00", "A"),
+        )
+        val result = TimetableUtils.deduplicateEvents(events)
+        assertEquals(1, result.size)
+    }
+
+    @Test
+    fun `deduplicateEvents handles empty list`() {
+        val result = TimetableUtils.deduplicateEvents(emptyList())
+        assertTrue(result.isEmpty())
+    }
+
     // ── toUiEvent crash-proof: try/catch fallback ──────────────────────
 
     @Test

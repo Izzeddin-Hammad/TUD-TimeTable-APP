@@ -38,6 +38,10 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Bookmark Courses** — Save courses for quick access from Settings
 - **Search History** — Quick re-access to recent searches
 - **Material 3 UI** — Jetpack Compose with dynamic color support and smooth crossfade animations
+- **Defensive JSON Parsing** — All API response parsers wrapped in try/catch; malformed HTML/XML responses emit clean `TimetableApiException(502)` instead of leaking raw `JSONException` text to the UI
+- **Reactive Background Sync** — UI polls Room every 2 minutes; if WorkManager updated cache, the timetable refreshes automatically without manual pull-to-refresh
+- **Performance Optimized** — `derivedStateOf` on group filtering prevents recomposition churn; serial scanner uses simple `for`-loop instead of 30+ async coroutines
+- **Unified Rate Limiter** — Both UI and WorkManager share a single `TimetableApiService.DEFAULT` singleton with one OkHttp client and one token-bucket rate limiter
 
 ## How It Works
 
@@ -61,12 +65,13 @@ UI (Jetpack Compose)
 3. Repository checks cache first: if fresh within the configured SyncStrategy TTL → zero network
 4. If cache is stale or missing → API call via `RequestDebouncer` (concurrent duplicates consolidated)
 5. Events are parsed (pre-compiled regexes), deduplicated (O(n log n) single pass), and cached
-6. A parallelized background scanner discovers which weeks have classes and which are empty
+6. A serial background scanner discovers which weeks have classes and which are empty
 7. Semester boundaries are auto-detected from gaps in the schedule
-8. The week dropdown shows only active weeks, numbered per semester; "All" toggle overrides
+8. The week dropdown shows only non-empty weeks, numbered per semester; empty weeks are permanently hidden
 9. View state (semester, week, day, group) is persisted per course across app restarts
 10. WorkManager refreshes cached data per the user's chosen SyncStrategy
-11. Sync completions post notifications with success/fail status and timestamp
+11. A 2-minute background poll in the timetable screen detects WorkManager cache updates and refreshes the UI automatically
+12. Sync completions post notifications with success/fail status and timestamp
 
 ### Sync Strategies
 | Mode | TTL | Behavior |
@@ -93,9 +98,20 @@ Network calls are completely blocked if the app is opened while the cache is sti
 | No cache available + network fail | Show error message with "Retry" button |
 | Coroutine cancelled (navigation) | `CancellationException` propagated, cache left intact |
 
+### Fault Tolerance (Chaos Engineering)
+| Attack Scenario | Defense |
+|----------------|---------|
+| JSON key renamed by upstream | `optString()` with safe defaults — missing keys return `""`, never crash |
+| Null values in API response | `optString` treats JSON null as missing; `.ifBlank { "TBA" }` guards downstream |
+| Server returns HTML instead of JSON | `JSONObject(body)` wrapped in try/catch → clean `TimetableApiException(502)` |
+| Server hangs (no response) | 15s connect timeout + 30s read timeout; no automatic retries |
+| HTTP 429 / 500+ | Repository `catch(Exception)` triggers stale Room cache fallback |
+| Firewall returns login page | `optJSONArray("Results") ?: JSONArray()` — graceful empty results, no crash |
+| Worker updates Room while user is viewing | 2-minute polling `LaunchedEffect` detects changes, refreshes UI automatically |
+
 ## Download
 
-[**Download latest APK (v1.4)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.4-debug.apk)
+[**Download latest APK (v1.9)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.9-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 
