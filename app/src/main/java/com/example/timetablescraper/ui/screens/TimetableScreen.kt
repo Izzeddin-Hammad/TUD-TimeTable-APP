@@ -47,6 +47,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import java.time.LocalDate
@@ -326,6 +328,38 @@ fun TimetableScreen(
         } finally {
             isLoading = false
             userPickedWeek = false
+        }
+    }
+
+    // ── Background sync poll: check for WorkManager-updated cache ─────
+    // Every 2 minutes, load the current week from the repository with
+    // forceRefresh=false so the network is never hit from this poll.
+    // If the SyncWorker updated the cache, the UI refreshes automatically.
+    LaunchedEffect(currentMonday, selectedCourse.identity) {
+        while (isActive) {
+            delay(120_000) // 2-minute poll interval
+            try {
+                val result = repository.loadTimetable(
+                    courseIdentity = selectedCourse.identity,
+                    timetableTypeId = selectedCourse.timetable_type_id,
+                    mondayDate = currentMonday,
+                    forceRefresh = false,  // zero network — returns cache within TTL
+                    context = context,
+                    courseName = selectedCourse.name
+                )
+                // Only update if we got fresh data (don't overwrite with stale cache)
+                if (result.source != CacheSource.CACHE_STALE) {
+                    val mondayStr = currentMonday.format(DATE_FORMATTER)
+                    val updatedEvents = result.events
+                        .map { TimetableUtils.toUiEvent(it, mondayStr) }
+                    if (updatedEvents != events) {
+                        events = updatedEvents
+                        cacheSource = result.source
+                    }
+                }
+            } catch (_: Exception) {
+                // Silently ignore — background poll should never disturb the user
+            }
         }
     }
 
