@@ -502,23 +502,18 @@ fun TimetableScreen(
                     (from == null || !w.isBefore(from)) && (to == null || !w.isAfter(to))
                 }
             }
-            // scannedWeeks tracks which weeks have been processed by the scanner
-            // (either confirmed active or confirmed empty). Only scanned, non-empty
-            // weeks appear in the dropdown — unscanned weeks are hidden until the
-            // scanner reaches them, preventing gaps in week numbering.
-            val scannedWeeks = emptyWeeks + activeWeeks
             val visibleWeeks = remember(
-                scannedWeeks, allAcademicWeeks, activeSemester,
+                allAcademicWeeks, emptyWeeks, activeSemester,
                 firstWeekDate, sem2WeekDate
             ) {
                 val semStart = if (activeSemester == 0) firstWeekDate else sem2WeekDate
                 val semEnd = if (activeSemester == 0) sem2WeekDate?.minusWeeks(1) else null
+                // Show all weeks within the semester, progressively hiding
+                // empty weeks as the background scanner confirms them.
                 allAcademicWeeks.filter { w ->
-                    val key = w.format(DATE_FORMATTER)
-                    key in scannedWeeks &&
-                    key !in emptyWeeks &&
                     (semStart == null || !w.isBefore(semStart)) &&
-                    (semEnd == null || !w.isAfter(semEnd))
+                    (semEnd == null || !w.isAfter(semEnd)) &&
+                    w.format(DATE_FORMATTER) !in emptyWeeks
                 }
             }
 
