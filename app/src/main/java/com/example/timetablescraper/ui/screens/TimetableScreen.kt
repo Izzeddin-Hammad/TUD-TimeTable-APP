@@ -38,14 +38,17 @@ import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.SyncPreferences
 import com.example.timetablescraper.TimetableApplication
 import com.example.timetablescraper.worker.SyncNotificationManager
+import com.example.timetablescraper.api.ApiEvent
 import com.example.timetablescraper.api.CacheSource
 import com.example.timetablescraper.api.SearchResult
 import com.example.timetablescraper.api.TimetableEvent
 import com.example.timetablescraper.api.TimetableUtils
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -239,14 +242,34 @@ fun TimetableScreen(
         scanningWeeks = false
     }
 
-    // Fetch timetable when course or week changes (or force-refresh triggered)
+    // Fetch timetable when course or week changes (or force-refresh triggered).
+    // Uses stale-while-revalidate: show cached data instantly, then refresh
+    // in background if stale. The toUiEvent date parsing is offloaded to
+    // Dispatchers.Default to avoid blocking the main thread.
     LaunchedEffect(currentMonday, selectedCourse.identity, refreshTrigger) {
-        isLoading = true
-        errorMessage = null
-        // Keep previous cacheSource visible during reload to avoid layout jump
+        val mondayStr = currentMonday.format(DATE_FORMATTER)
+        val forceRefresh = refreshTrigger > 0
 
+        // ── Phase 1: show cached data immediately (zero-wait UX) ──────
+        if (!forceRefresh) {
+            val cachedUi = withContext(Dispatchers.Default) {
+                val cached = app.database.timetableDao()
+                    .getEvents(selectedCourse.identity, mondayStr)
+                if (cached.isNotEmpty()) {
+                    cached.map { it.let { e -> ApiEvent(e.moduleCode, e.title, e.type, e.lecturer, e.room, e.start, e.end, e.group, e.id) } }
+                        .map { TimetableUtils.toUiEvent(it, mondayStr) }
+                } else null
+            }
+            if (cachedUi != null && cachedUi.isNotEmpty()) {
+                events = cachedUi
+                cacheSource = CacheSource.CACHE_FRESH
+                isLoading = false
+                activeWeeks = activeWeeks + mondayStr
+            }
+        }
+
+        // ── Phase 2: full load (cache-hit short-circuit or network) ───
         try {
-            val forceRefresh = refreshTrigger > 0
             val result = repository.loadTimetable(
                 courseIdentity = selectedCourse.identity,
                 timetableTypeId = selectedCourse.timetable_type_id,
@@ -255,44 +278,36 @@ fun TimetableScreen(
                 context = context,
                 courseName = selectedCourse.name
             )
-            cacheSource = result.source
 
-            // Post notification for pull-to-refresh — runs on Main dispatcher
-            // (outside the IO block), so no IO contention.
+            // Convert to UI events off the main thread
+            val freshUi = withContext(Dispatchers.Default) {
+                result.events.map { TimetableUtils.toUiEvent(it, mondayStr) }
+            }
+            // Only update if data actually changed (avoids unnecessary recomposition)
+            if (freshUi != events) {
+                events = freshUi
+                cacheSource = result.source
+            }
+
+            // Post notification for pull-to-refresh
             if (forceRefresh && result.source == CacheSource.NETWORK) {
                 val eventCount = result.events.size
                 val courseName = selectedCourse.name.substringBefore("/")
                 SyncNotificationManager.postCompletionNotification(
-                    context,
-                    success = true,
+                    context, success = true,
                     summary = "Refreshed $eventCount event(s) for $courseName"
                 )
             }
 
-            val mondayStr = currentMonday.format(DATE_FORMATTER)
-            // Events already deduplicated by repository — no second pass needed
-            events = result.events
-                .map { TimetableUtils.toUiEvent(it, mondayStr) }
-
             // Mark empty weeks so they're removed from the dropdown.
-            // We do NOT mutate currentMonday here — let the user navigate
-            // with the week picker. The displayMonday logic will jump the
-            // visual selection to the first valid semester week if
-            // currentMonday falls outside semester bounds.
-            if (events.isNotEmpty()) {
-                // Add the current week to activeWeeks so it shows in the dropdown immediately
-                activeWeeks = activeWeeks + currentMonday.format(DATE_FORMATTER)
+            if (freshUi.isNotEmpty()) {
+                activeWeeks = activeWeeks + mondayStr
             }
 
-            // Mark empty weeks so the visibleWeeks filter removes them later
-            if (events.isEmpty() && !forceRefresh && !userPickedWeek) {
+            if (freshUi.isEmpty() && !forceRefresh && !userPickedWeek) {
                 val weekStr = currentMonday.format(DATE_FORMATTER)
                 emptyWeeks = emptyWeeks + weekStr
 
-                // In summer (Jun–Aug), bulk-mark all summer weeks as empty
-                // so they're hidden from the dropdown, but keep currentMonday
-                // as the actual current week. The displayMonday logic below
-                // handles showing the first semester week in the picker.
                 if (currentMonday.monthValue in 6..8) {
                     val prefMonday = SyncPreferences.getFirstWeekMonday(context)
                         ?.let { try { LocalDate.parse(it) } catch (_: Exception) { null } }
@@ -303,37 +318,35 @@ fun TimetableScreen(
                             java.time.LocalDate.of(academicYear, 10, 1)
                                 .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
                         }
-                    // Mark summer weeks as empty so the hide-empty-weeks filter
-                    // removes them — but don't jump currentMonday.
                     var m = currentMonday
                     while (m.isBefore(targetMonday)) {
                         emptyWeeks = emptyWeeks + m.format(DATE_FORMATTER)
                         m = m.plusWeeks(1)
                     }
                 }
-                // Don't advance currentMonday — user picks their week
             }
 
-            // If we loaded stale cache and there's an error, show a warning
             if (result.source == CacheSource.CACHE_STALE && result.error != null) {
                 errorMessage = "⚠️ Showing cached data (offline). Last update may be outdated."
             }
         } catch (e: CancellationException) {
-            throw e  // Don't swallow compose navigation cancellation
+            throw e
         } catch (e: Exception) {
-            val msg = e.message ?: ""
-            errorMessage = when {
-                msg.contains("Unable to resolve host", ignoreCase = true) ||
-                msg.contains("timeout", ignoreCase = true) ||
-                msg.contains("connect", ignoreCase = true) ->
-                    "No internet connection. Check your network and try again."
-                msg.contains("API error", ignoreCase = true) ->
-                    "Server error: $msg"
-                else ->
-                    "Failed to load timetable. Try refreshing or check back later.\n($msg)"
+            // Only show error if we didn't already show cached data in Phase 1
+            if (events.isEmpty()) {
+                val msg = e.message ?: ""
+                errorMessage = when {
+                    msg.contains("Unable to resolve host", ignoreCase = true) ||
+                    msg.contains("timeout", ignoreCase = true) ||
+                    msg.contains("connect", ignoreCase = true) ->
+                        "No internet connection. Check your network and try again."
+                    msg.contains("API error", ignoreCase = true) ->
+                        "Server error: $msg"
+                    else ->
+                        "Failed to load timetable. Try refreshing or check back later.\n($msg)"
+                }
+                cacheSource = null
             }
-            events = emptyList()
-            cacheSource = null
         } finally {
             isLoading = false
             userPickedWeek = false
