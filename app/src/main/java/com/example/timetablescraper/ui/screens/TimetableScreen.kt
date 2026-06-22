@@ -175,14 +175,19 @@ fun TimetableScreen(
         }
     }
 
-    // ── Background week scanner (serial) ────────────────────────────
+    // ── Background week scanner (serial, rate-limit-aware) ──────────
     // After the first successful load, scan all remaining weeks in the
     // background so empty ones disappear from the dropdown automatically.
-    // Sequential single-threaded: the API rate limiter allows 5 req/10s, so
-    // parallelism would exhaust the bucket instantly on any course
-    // with more than 5 weeks — leaving most weeks as "failed."
-    // Uses a simple for-loop instead of async+semaphore to avoid
-    // allocating 30+ coroutine/Deferred objects for serial work.
+    //
+    // Rate-limit compliance: the API token bucket allows 5 req/10s.
+    // Inserting a 2.1s delay between requests keeps us at ~0.5 req/s,
+    // well within the limit and prevents cascading 429 failures that
+    // would permanently hide weeks from the dropdown.
+    //
+    // Progress reporting: scannedCount is updated inline for the
+    // LinearProgressIndicator; state updates (emptyWeeks/activeWeeks/
+    // failedWeeks) are batched and committed after the loop to avoid
+    // flooding the Compose recomposition scheduler with 30+ rapid updates.
     LaunchedEffect(events.isNotEmpty(), selectedCourse.identity) {
         if (!events.isNotEmpty() || scanningWeeks) return@LaunchedEffect
         scanningWeeks = true
@@ -195,9 +200,14 @@ fun TimetableScreen(
         totalToScan = toScan.size
         scannedCount = 0
 
-        // Serial execution: one request at a time respects the rate limiter.
-        // No coroutine overhead — simple sequential loop.
+        // Batch collectors — commit all results at once after the loop
+        val batchEmpty = mutableSetOf<String>()
+        val batchActive = mutableSetOf<String>()
+        val batchFailed = mutableSetOf<String>()
+
         for (monday in toScan) {
+            // Respect the rate limiter: 2.1s → ~0.5 req/s, safely under 5 req/10s
+            delay(2100)
             try {
                 val result = repository.loadTimetable(
                     courseIdentity = selectedCourse.identity,
@@ -209,17 +219,23 @@ fun TimetableScreen(
                 )
                 val key = monday.format(DATE_FORMATTER)
                 if (result.events.isEmpty()) {
-                    emptyWeeks = emptyWeeks + key
+                    batchEmpty.add(key)
                 } else {
-                    activeWeeks = activeWeeks + key
+                    batchActive.add(key)
                 }
             } catch (_: Exception) {
                 // Network error — track as failed so it's hidden from
                 // the dropdown without being permanently marked empty
-                failedWeeks = failedWeeks + monday.format(DATE_FORMATTER)
+                batchFailed.add(monday.format(DATE_FORMATTER))
             }
             scannedCount++
         }
+
+        // Single batch commit — one recomposition instead of 30+
+        if (batchEmpty.isNotEmpty()) emptyWeeks = emptyWeeks + batchEmpty
+        if (batchActive.isNotEmpty()) activeWeeks = activeWeeks + batchActive
+        if (batchFailed.isNotEmpty()) failedWeeks = failedWeeks + batchFailed
+
         scanningWeeks = false
     }
 
@@ -535,14 +551,6 @@ fun TimetableScreen(
             // Active semester: 0 = Sem 1, 1 = Sem 2 (restored from saved state)
             var activeSemester by remember { mutableStateOf(savedSemester) }
 
-            // Filter weeks by semester
-            val semesterWeeks = remember(allAcademicWeeks, firstWeekDate, sem2WeekDate, activeSemester) {
-                val from = if (activeSemester == 0) firstWeekDate else sem2WeekDate
-                val to = if (activeSemester == 0) sem2WeekDate?.minusWeeks(1) else null
-                allAcademicWeeks.filter { w ->
-                    (from == null || !w.isBefore(from)) && (to == null || !w.isAfter(to))
-                }
-            }
             val visibleWeeks = remember(
                 allAcademicWeeks, emptyWeeks, failedWeeks, activeSemester,
                 firstWeekDate, sem2WeekDate
