@@ -132,12 +132,13 @@ object UpdateChecker {
             val name = asset.optString("name", "")
             // Prefer the APK asset
             if (name.endsWith(".apk")) {
-                return asset.optString("browser_download_url", null)
+                val url = asset.optString("browser_download_url")
+                if (url.isNotEmpty()) return url
             }
         }
         // Fallback: return the first asset's browser_download_url
         return if (assets.length() > 0) {
-            assets.getJSONObject(0).optString("browser_download_url", null)
+            assets.getJSONObject(0).optString("browser_download_url").ifEmpty { null }
         } else null
     }
 

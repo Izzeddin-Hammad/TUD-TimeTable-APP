@@ -1,7 +1,7 @@
 # Privacy Policy — TimeTable
 
 **Last updated:** 23 June 2026  
-**App version:** 1.15  
+**App version:** 1.16  
 **Developer:** Izzeddin Hammad  
 **Repository:** [Izzeddin-Hammad/TUD-TimeTable-APP](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP)
 
