@@ -3,7 +3,7 @@
 **Last updated:** 23 June 2026  
 **App version:** 1.15  
 **Developer:** Izzeddin Hammad  
-**Repository:** [Izzeddin-Hammad/TUD-TimeTable-APP](https://gitlab.com/Izzeddin-Hammad/TUD-TimeTable-APP)
+**Repository:** [Izzeddin-Hammad/TUD-TimeTable-APP](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP)
 
 ---
 
@@ -37,7 +37,7 @@ TU Dublin Scientia Publish API
 └─────────────────────────┘
         │
         ▼
-  GitLab Releases API
+  GitHub Releases API
   (only for update checks,
    no personal data sent)
 ```
@@ -57,7 +57,7 @@ TU Dublin Scientia Publish API
 | Destination | Data sent | Purpose |
 |---|---|---|
 | `scientia-eu-v4-api-d4-01.azurewebsites.net` (TU Dublin) | Course search query, course identity | Fetch public timetable data |
-| `gitlab.com` | None (public release API) | Check for app updates |
+| `github.com` | None (public release API) | Check for app updates |
 
 All network requests are made over **HTTPS**. No data is sent to any analytics server, advertising network, or third-party service.
 
@@ -80,14 +80,13 @@ Since the app stores **zero personal data** and performs **zero data collection*
 | Service | Role | Privacy notice |
 |---|---|---|
 | TU Dublin Scientia API | Timetable data provider | Governed by TU Dublin's privacy policy |
-| GitLab.com | Release hosting for app updates | [GitLab Privacy Policy](https://about.gitlab.com/privacy/) |
-| GitHub (APK mirror) | Release hosting for app updates | [GitHub Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement) |
+| GitHub.com | Release hosting for app updates | [GitHub Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement) |
 
 ---
 
 ## Contact
 
-For privacy-related questions, open an issue on the [repository](https://gitlab.com/Izzeddin-Hammad/TUD-TimeTable-APP/-/issues) or contact the developer via GitLab.
+For privacy-related questions, open an issue on the [repository](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/issues) or contact the developer via GitHub.
 
 ---
 

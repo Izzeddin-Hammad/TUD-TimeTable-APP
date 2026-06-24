@@ -53,7 +53,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 
 ### UI/UX
 - **Material 3 UI** — Jetpack Compose with dynamic color support and smooth crossfade animations
-- **In-App Self-Updating** — Queries GitLab Releases API on launch; prompts with an update dialog when a newer version is detected
+- **In-App Self-Updating** — Queries GitHub Releases API on launch; prompts with an update dialog when a newer version is detected
 - **Search History** — Quick re-access to recent searches
 - **Subgroup UI** — 32dp expand arrow with "Tap to reveal course sub-groups" label; full subgroup path displayed in filter chips
 - **Auto-Dismiss Cache Status** — "🌐 Updated from server" banner auto-dismisses after 4 seconds
@@ -92,7 +92,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 │    └─ WorkManager (strategy-aware periodic sync)             │
 │         └─ SyncNotificationManager                           │
 ├─ Update Layer ───────────────────────────────────────────────┤
-│  UpdateChecker → GitLab Releases API                         │
+│  UpdateChecker → GitHub Releases API                        │
 │  UpdateManager → DownloadManager → FileProvider → Installer  │
 └──────────────────────────────────────────────────────────────┘
 ```

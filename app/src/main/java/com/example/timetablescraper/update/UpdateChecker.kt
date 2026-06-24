@@ -10,14 +10,14 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Queries the GitLab Releases API for the latest release tag and APK download URL.
+ * Queries the GitHub Releases API for the latest release tag and APK download URL.
  *
  * ## Endpoint
- * `GET /api/v4/projects/Izzeddin-Hammad%2FTUD-TimeTable-APP/releases`
+ * `GET /repos/Izzeddin-Hammad/TUD-TimeTable-APP/releases`
  *
  * ## Response parsing
  * Extracts the first (latest) release's `tag_name` (e.g. "v1.4") and the
- * direct APK download URL from `assets.links[].url`.
+ * direct APK download URL from `assets[].browser_download_url`.
  *
  * ## Version comparison
  * The remote `tag_name` is compared against the local [BuildConfig.VERSION_NAME]
@@ -25,15 +25,15 @@ import java.util.concurrent.TimeUnit
  */
 object UpdateChecker {
 
-    /** GitLab project path, URL-encoded. */
-    private const val GITLAB_PROJECT_PATH = "Izzeddin-Hammad%2FTUD-TimeTable-APP"
+    /** GitHub owner/repo. */
+    private const val GITHUB_REPO = "Izzeddin-Hammad/TUD-TimeTable-APP"
 
-    /** GitLab API v4 base URL. */
-    private const val GITLAB_API_BASE = "https://gitlab.com/api/v4"
+    /** GitHub API base URL. */
+    private const val GITHUB_API_BASE = "https://api.github.com"
 
     /** Full releases endpoint URL. */
     private val RELEASES_URL =
-        "$GITLAB_API_BASE/projects/$GITLAB_PROJECT_PATH/releases"
+        "$GITHUB_API_BASE/repos/$GITHUB_REPO/releases"
 
     /** Lightweight OkHttp client dedicated to update checks (no rate-limiting needed). */
     private val client = OkHttpClient.Builder()
@@ -57,7 +57,7 @@ object UpdateChecker {
     )
 
     /**
-     * Query the GitLab API for the latest release.
+     * Query the GitHub API for the latest release.
      *
      * Called from a coroutine on [Dispatchers.IO].
      *
@@ -75,21 +75,21 @@ object UpdateChecker {
                 if (!response.isSuccessful) {
                     return@withContext UpdateResult(
                         updateAvailable = false,
-                        errorMessage = "GitLab API returned HTTP ${response.code}"
+                        errorMessage = "GitHub API returned HTTP ${response.code}"
                     )
                 }
 
                 val body = response.body?.string()
                     ?: return@withContext UpdateResult(
                         updateAvailable = false,
-                        errorMessage = "Empty response from GitLab API"
+                        errorMessage = "Empty response from GitHub API"
                     )
 
                 val releases = JSONArray(body)
                 if (releases.length() == 0) {
                     return@withContext UpdateResult(
                         updateAvailable = false,
-                        errorMessage = "No releases found on GitLab"
+                        errorMessage = "No releases found on GitHub"
                     )
                 }
 
@@ -97,7 +97,7 @@ object UpdateChecker {
                 val latest = releases.getJSONObject(0)
                 val tagName = latest.getString("tag_name")
 
-                // Extract the APK download URL from assets.links
+                // Extract the APK download URL from assets
                 val downloadUrl = extractDownloadUrl(latest)
 
                 val localVersion = BuildConfig.VERSION_NAME
@@ -120,25 +120,24 @@ object UpdateChecker {
     /**
      * Extract the APK download URL from a release JSON object.
      *
-     * Looks through `assets.links` for a link whose `name` or `url` ends with `.apk`.
-     * Falls back to the first link URL if no `.apk` extension is found.
+     * Looks through `assets` for an asset whose `name` ends with `.apk` and
+     * returns its `browser_download_url`. Falls back to the first asset's
+     * `browser_download_url` if no `.apk` name is found.
      */
     private fun extractDownloadUrl(release: JSONObject): String? {
-        val assets = release.optJSONObject("assets")
-        val links = assets?.optJSONArray("links") ?: return null
+        val assets = release.optJSONArray("assets") ?: return null
 
-        for (i in 0 until links.length()) {
-            val link = links.getJSONObject(i)
-            val url = link.optString("url", null) ?: continue
-            val name = link.optString("name", "")
-            // Prefer the APK link
-            if (name.endsWith(".apk") || url.endsWith(".apk")) {
-                return url
+        for (i in 0 until assets.length()) {
+            val asset = assets.getJSONObject(i)
+            val name = asset.optString("name", "")
+            // Prefer the APK asset
+            if (name.endsWith(".apk")) {
+                return asset.optString("browser_download_url", null)
             }
         }
-        // Fallback: return the first link's URL
-        return if (links.length() > 0) {
-            links.getJSONObject(0).optString("url", null)
+        // Fallback: return the first asset's browser_download_url
+        return if (assets.length() > 0) {
+            assets.getJSONObject(0).optString("browser_download_url", null)
         } else null
     }
 

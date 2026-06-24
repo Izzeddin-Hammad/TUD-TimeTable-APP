@@ -35,7 +35,7 @@
 | `searchError` | `String?` | `null` | Error message from last search | `onStateChange` (SearchScreen) | SearchScreen (as `errorMessage`) |
 | `searchHasSearched` | `Boolean` | `false` | Whether at least one search has been performed | `onStateChange` (SearchScreen) | SearchScreen (as `hasSearched`) |
 | `showUpdateDialog` | `Boolean` | `false` | Whether the "Update Available" AlertDialog is showing | `LaunchedEffect(Unit)`, dialog buttons | AlertDialog (update available prompt) |
-| `updateResult` | `UpdateChecker.UpdateResult?` | `null` | Result of the GitLab release check | `LaunchedEffect(Unit)` | AlertDialog (for version string and `downloadUrl`) |
+| `updateResult` | `UpdateChecker.UpdateResult?` | `null` | Result of the GitHub release check | `LaunchedEffect(Unit)` | AlertDialog (for version string and `downloadUrl`) |
 | `updateCheckDone` | `Boolean` | `false` | Guard flag — ensures the update check runs exactly once | `LaunchedEffect(Unit)` | `LaunchedEffect(Unit)` guard |
 
 #### 1.2.2 `when(currentScreen)` Rendering Matrix
@@ -679,7 +679,7 @@ LaunchedEffect(Unit) {
 
 #### Endpoint
 ```
-GET https://gitlab.com/api/v4/projects/Izzeddin-Hammad%2FTUD-TimeTable-APP/releases
+GET https://api.github.com/repos/Izzeddin-Hammad/TUD-TimeTable-APP/releases
 ```
 
 #### OkHttp Client
@@ -692,8 +692,8 @@ Lightweight client with 10s connect / 15s read timeouts — **no** `RateLimitInt
 3. Takes the first (latest) release.
 4. Reads `tag_name` (e.g. `"v1.4"`).
 5. Calls `extractDownloadUrl(release: JSONObject)`:
-   - Searches `assets.links[]` for a link whose `name` or `url` ends with `.apk`.
-   - Falls back to the first link's URL if no `.apk` extension found.
+   - Searches `assets[]` for an asset whose `name` ends with `.apk` and returns its `browser_download_url`.
+   - Falls back to the first asset's `browser_download_url` if no `.apk` name is found.
 6. Compares versions via `isNewerThan(remote, local)`:
    - Strips leading `v`/`V`.
    - Splits on `.` and compares each segment numerically.
@@ -892,7 +892,7 @@ Below is every file in `app/src/main/java/com/example/timetablescraper/` with it
 ---
 
 #### **`update/UpdateChecker.kt`**
-- **Role:** GitLab Releases API client. `checkForUpdate()` returns `UpdateResult` with version comparison.
+- **Role:** GitHub Releases API client. `checkForUpdate()` returns `UpdateResult` with version comparison.
 - **Dependents:** `MainActivity.kt` (calls `UpdateChecker.checkForUpdate()`), `BuildConfig` (for local `VERSION_NAME`).
 
 #### **`update/UpdateManager.kt`**
