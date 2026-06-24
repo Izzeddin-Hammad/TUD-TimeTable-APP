@@ -45,6 +45,14 @@ object UpdateManager {
      */
     fun startDownload(context: Context, downloadUrl: String): Boolean {
         return try {
+            // Clean up any previous download file — DownloadManager will fail
+            // to overwrite an existing file on some Android versions.
+            val existing = getApkFile(context)
+            if (existing.exists()) {
+                existing.delete()
+                Log.d(TAG, "Deleted previous APK file")
+            }
+
             val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
                 setTitle("TimeTable Update")
                 setDescription("Downloading latest version...")
@@ -54,8 +62,6 @@ object UpdateManager {
                     Environment.DIRECTORY_DOWNLOADS,
                     APK_FILENAME
                 )
-                // Allow scanning by MediaScanner so the file is visible
-                allowScanningByMediaScanner()
             }
 
             val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
