@@ -129,7 +129,10 @@ class TimetableRepository(
                 }
             }
 
-            // ── 2. Fetch from API ──────────────────────────────────
+            // ── 2. Snapshot old cache for change detection ─────────
+            val oldCache = dao.getEvents(courseIdentity, weekStart)
+
+            // ── 3. Fetch from API ──────────────────────────────────
             try {
                 val response = apiService.fetchTimetable(
                     categoryTypeId = timetableTypeId,
@@ -137,7 +140,7 @@ class TimetableRepository(
                     mondayDate = mondayDate
                 )
 
-                // ── 3. Persist to cache ─────────────────────────────
+                // ── 4. Persist to cache ─────────────────────────────
                 if (response.events.isNotEmpty()) {
                     val now = System.currentTimeMillis()
                     val entities = TimetableUtils.deduplicateEvents(response.events)
@@ -168,9 +171,12 @@ class TimetableRepository(
                     // DAO is the single source of truth — no SharedPreferences write needed
                 }
 
+                val changes = computeChanges(oldCache, response.events)
+
                 CacheResult(
                     events = response.events,
-                    source = CacheSource.NETWORK
+                    source = CacheSource.NETWORK,
+                    changes = changes
                 )
 
             } catch (e: CancellationException) {
@@ -203,6 +209,91 @@ class TimetableRepository(
         end = end,
         group = group
     )
+
+    /**
+     * Compare old cached events with fresh API events and return a list of
+     * [TimetableChange] describing what was added, removed, or modified.
+     *
+     * Matching key: (module_code, start, end) — a single class session.
+     * Empty old cache (first-ever load) returns an empty list (no "changes" to report).
+     */
+    private fun computeChanges(
+        oldEntities: List<CachedEventEntity>,
+        newEvents: List<ApiEvent>
+    ): List<TimetableChange> {
+        if (oldEntities.isEmpty()) return emptyList()
+
+        val oldMap = oldEntities.groupBy { Triple(it.moduleCode, it.start, it.end) }
+        val newMap = newEvents.groupBy { Triple(it.module_code, it.start, it.end) }
+        val changes = mutableListOf<TimetableChange>()
+
+        // Helper: extract day name from ISO start string
+        fun dayOf(start: String): String = try {
+            java.time.LocalDate.parse(start.substring(0, 10))
+                .dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
+        } catch (_: Exception) { "?" }
+
+        // Helper: extract time range from ISO start/end strings
+        fun timeRange(start: String, end: String): String {
+            val s = if (start.length >= 16) start.substring(11, 16) else "??:??"
+            val e = if (end.length >= 16) end.substring(11, 16) else "??:??"
+            return "$s - $e"
+        }
+
+        // Removed: in old but not in new
+        for ((key, oldList) in oldMap) {
+            if (key !in newMap) {
+                val o = oldList.first()
+                changes.add(TimetableChange(
+                    type = ChangeType.REMOVED,
+                    day = dayOf(o.start),
+                    timeRange = timeRange(o.start, o.end),
+                    moduleCode = o.moduleCode,
+                    title = o.title.ifBlank { "Untitled" },
+                    description = "Class removed"
+                ))
+            }
+        }
+
+        // Added: in new but not in old
+        for ((key, newList) in newMap) {
+            if (key !in oldMap) {
+                val n = newList.first()
+                changes.add(TimetableChange(
+                    type = ChangeType.ADDED,
+                    day = dayOf(n.start),
+                    timeRange = timeRange(n.start, n.end),
+                    moduleCode = n.module_code,
+                    title = n.title.ifBlank { "Untitled" },
+                    description = "New class"
+                ))
+            }
+        }
+
+        // Modified: same key, different details
+        for ((key, newList) in newMap) {
+            val oldList = oldMap[key] ?: continue
+            val o = oldList.first()
+            val n = newList.first()
+            val diffs = mutableListOf<String>()
+            if (o.room != n.room) diffs.add("Room: ${o.room} → ${n.room}")
+            if (o.lecturer != n.lecturer) diffs.add("Lecturer: ${o.lecturer} → ${n.lecturer}")
+            if (o.group != n.group) diffs.add("Group: ${o.group} → ${n.group}")
+            if (o.type != n.type) diffs.add("Type: ${o.type} → ${n.type}")
+            if (diffs.isNotEmpty()) {
+                changes.add(TimetableChange(
+                    type = ChangeType.MODIFIED,
+                    day = dayOf(n.start),
+                    timeRange = timeRange(n.start, n.end),
+                    moduleCode = n.module_code,
+                    title = n.title.ifBlank { "Untitled" },
+                    description = diffs.joinToString("; ")
+                ))
+            }
+        }
+
+        return changes
+    }
 
     /** Delete all cached timetable data (e.g. on app reset).
      *  Saved/bookmarked courses and search history are NOT affected. */
@@ -302,5 +393,6 @@ enum class CacheSource {
 data class CacheResult(
     val events: List<ApiEvent>,
     val source: CacheSource,
-    val error: String? = null
+    val error: String? = null,
+    val changes: List<TimetableChange> = emptyList()
 )

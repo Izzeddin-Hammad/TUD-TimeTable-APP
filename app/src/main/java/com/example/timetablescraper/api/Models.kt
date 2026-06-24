@@ -77,3 +77,25 @@ data class TimetableEvent(
     val group: String = "",  // e.g. "A", "B", "G1" — sub-group identifier
     val id: Long = 0         // Room primary key — stable identity for LazyColumn
 )
+
+/**
+ * Describes a single change detected in the timetable after a network refresh.
+ *
+ * @param type         What kind of change: ADDED, REMOVED, or MODIFIED.
+ * @param day          Day abbreviation ("Mon", "Tue", …).
+ * @param timeRange    Human-readable time range ("10:00 - 12:00").
+ * @param moduleCode   Module/course code.
+ * @param title        Event title.
+ * @param description  Human-readable description of the change (e.g. "Room: A→B").
+ */
+@Immutable
+data class TimetableChange(
+    val type: ChangeType,
+    val day: String,
+    val timeRange: String,
+    val moduleCode: String,
+    val title: String,
+    val description: String
+)
+
+enum class ChangeType { ADDED, REMOVED, MODIFIED }

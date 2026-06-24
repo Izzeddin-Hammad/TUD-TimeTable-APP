@@ -2,6 +2,8 @@ package com.example.timetablescraper.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -41,7 +43,9 @@ import com.example.timetablescraper.TimetableApplication
 import com.example.timetablescraper.worker.SyncNotificationManager
 import com.example.timetablescraper.api.ApiEvent
 import com.example.timetablescraper.api.CacheSource
+import com.example.timetablescraper.api.ChangeType
 import com.example.timetablescraper.api.SearchResult
+import com.example.timetablescraper.api.TimetableChange
 import com.example.timetablescraper.api.TimetableApiService
 import com.example.timetablescraper.api.TimetableEvent
 import com.example.timetablescraper.api.TimetableUtils
@@ -159,6 +163,8 @@ fun TimetableScreen(
     // Shows a rate-limit message when the user tries to pull-refresh
     // within 24 hours of the last one.
     var showRefreshRateLimited by remember { mutableStateOf(false) }
+    var timetableChanges by remember { mutableStateOf<List<TimetableChange>>(emptyList()) }
+    var showChangesDialog by remember { mutableStateOf(false) }
     var uiTapKey by remember { mutableStateOf(0) }
     val uiRefresh = { uiTapKey++ }
 
@@ -296,6 +302,12 @@ fun TimetableScreen(
             if (freshUi != events) {
                 events = freshUi
                 cacheSource = result.source
+            }
+
+            // Check for timetable changes (from any network fetch)
+            if (result.source == CacheSource.NETWORK && result.changes.isNotEmpty()) {
+                timetableChanges = result.changes
+                showChangesDialog = true
             }
 
             // Post notification for pull-to-refresh
@@ -482,9 +494,9 @@ fun TimetableScreen(
                             coroutineScope.launch {
                                 val group = selectedGroup
                                 val nameWithGroup = if (group != null) {
-                                    val short = group.split("/")
-                                        .drop(2).joinToString("/")
-                                    "${selectedCourse.name} ($short)"
+                                    val fullGroup = group.split("/")
+                                        .drop(1).joinToString("/")
+                                    "${selectedCourse.name} ($fullGroup)"
                                 } else selectedCourse.name
                                 val courseToSave = selectedCourse.copy(name = nameWithGroup)
                                 if (newSaved) {
@@ -928,6 +940,63 @@ fun TimetableScreen(
         }
     }
         }
+    }
+
+    // ── Timetable change notification dialog ─────────────────────────────────
+    if (showChangesDialog && timetableChanges.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showChangesDialog = false },
+            title = { Text("📋 Timetable Changes") },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())
+                ) {
+                    timetableChanges.forEachIndexed { index, change ->
+                        val icon = when (change.type) {
+                            ChangeType.ADDED -> "🟢"
+                            ChangeType.REMOVED -> "🔴"
+                            ChangeType.MODIFIED -> "🟡"
+                        }
+                        val typeLabel = when (change.type) {
+                            ChangeType.ADDED -> "New"
+                            ChangeType.REMOVED -> "Removed"
+                            ChangeType.MODIFIED -> "Modified"
+                        }
+                        Column(modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("$icon ", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "${change.day} ${change.timeRange}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "${change.moduleCode} — ${change.title}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "${change.description} ($typeLabel)",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (index < timetableChanges.lastIndex) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showChangesDialog = false }) {
+                    Text("OK")
+                }
+            }
+        )
     }
 }
  

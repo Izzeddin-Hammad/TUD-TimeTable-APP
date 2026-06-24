@@ -24,6 +24,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -352,18 +353,27 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    val hideEmptyOn = SyncPreferences.shouldHideEmptyWeeks(context)
                     ExposedDropdownMenuBox(
                         expanded = firstWeekExpanded,
-                        onExpandedChange = { firstWeekExpanded = it }
+                        onExpandedChange = { if (!hideEmptyOn) firstWeekExpanded = it }
                     ) {
+                        val autoLabel = if (hideEmptyOn) "Auto-detect disabled" else "Auto-detect"
                         OutlinedTextField(
-                            value = firstWeek?.let { TimetableUtils.formatWeekRange(it) } ?: "Auto-detect",
+                            value = firstWeek?.let { TimetableUtils.formatWeekRange(it) } ?: autoLabel,
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = firstWeekExpanded) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                            colors = if (hideEmptyOn && firstWeekStr == null) OutlinedTextFieldDefaults.colors(
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                            ) else OutlinedTextFieldDefaults.colors(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor()
+                                .then(if (hideEmptyOn && firstWeekStr == null) Modifier.alpha(0.5f) else Modifier)
                         )
                         ExposedDropdownMenu(
                             expanded = firstWeekExpanded,
@@ -409,16 +419,24 @@ fun SettingsScreen(
 
                     ExposedDropdownMenuBox(
                         expanded = sem2WeekExpanded,
-                        onExpandedChange = { sem2WeekExpanded = it }
+                        onExpandedChange = { if (!hideEmptyOn) sem2WeekExpanded = it }
                     ) {
+                        val autoLabel = if (hideEmptyOn) "Auto-detect disabled" else "Auto-detect"
                         OutlinedTextField(
-                            value = sem2Week?.let { TimetableUtils.formatWeekRange(it) } ?: "Auto-detect",
+                            value = sem2Week?.let { TimetableUtils.formatWeekRange(it) } ?: autoLabel,
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sem2WeekExpanded) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                            colors = if (hideEmptyOn && sem2WeekStr == null) OutlinedTextFieldDefaults.colors(
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                            ) else OutlinedTextFieldDefaults.colors(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor()
+                                .then(if (hideEmptyOn && sem2WeekStr == null) Modifier.alpha(0.5f) else Modifier)
                         )
                         ExposedDropdownMenu(
                             expanded = sem2WeekExpanded,

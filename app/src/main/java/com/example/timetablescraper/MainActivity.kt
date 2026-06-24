@@ -98,8 +98,8 @@ private fun applyStarAndSave(
         try {
             if (!repo.isCourseSaved(course.identity)) {
                 val nameWithGroup = if (group != null) {
-                    val short = group.split("/").drop(2).joinToString("/")
-                    "${course.name} ($short)"
+                    val fullGroup = group.split("/").drop(1).joinToString("/")
+                    "${course.name} ($fullGroup)"
                 } else course.name
                 val courseToSave = course.copy(name = nameWithGroup)
                 repo.saveCourse(courseToSave, group)
