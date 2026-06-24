@@ -77,6 +77,7 @@ fun SettingsScreen(
     var updateCheckResult by remember { mutableStateOf<UpdateChecker.UpdateResult?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
+    var updateCheckMessage by remember { mutableStateOf<String?>(null) }
 
     /** Refresh the per-course cache list from the database. */
     fun refreshCachedCourses() {
@@ -741,11 +742,15 @@ fun SettingsScreen(
                             onClick = {
                                 isCheckingUpdate = true
                                 coroutineScope.launch {
+                                    updateCheckMessage = null
                                     val result = UpdateChecker.checkForUpdate()
                                     updateCheckResult = result
                                     isCheckingUpdate = false
                                     if (result.updateAvailable && result.downloadUrl != null) {
                                         showUpdateDialog = true
+                                    } else {
+                                        updateCheckMessage = result.errorMessage
+                                            ?: "You're up to date (${com.example.timetablescraper.BuildConfig.VERSION_NAME})"
                                     }
                                 }
                             },
@@ -760,6 +765,17 @@ fun SettingsScreen(
                             }
                             Text(if (isCheckingUpdate) "Checking" else "Check")
                         }
+                    }
+                    if (updateCheckMessage != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            updateCheckMessage!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (updateCheckResult?.updateAvailable == true)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
                     }
                 }
             }
