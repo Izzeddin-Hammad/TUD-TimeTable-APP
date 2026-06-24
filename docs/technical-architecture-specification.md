@@ -35,7 +35,7 @@
 | `searchError` | `String?` | `null` | Error message from last search | `onStateChange` (SearchScreen) | SearchScreen (as `errorMessage`) |
 | `searchHasSearched` | `Boolean` | `false` | Whether at least one search has been performed | `onStateChange` (SearchScreen) | SearchScreen (as `hasSearched`) |
 | `showUpdateDialog` | `Boolean` | `false` | Whether the "Update Available" AlertDialog is showing | `LaunchedEffect(Unit)`, dialog buttons | AlertDialog (update available prompt) |
-| `updateResult` | `UpdateChecker.UpdateResult?` | `null` | Result of the GitHub release check | `LaunchedEffect(Unit)` | AlertDialog (for version string and `downloadUrl`) |
+| `updateResult` | `UpdateChecker.UpdateResult?` | `null` | Result of the GitHub update check | `LaunchedEffect(Unit)` | AlertDialog (for version string and `downloadUrl`) |
 | `updateCheckDone` | `Boolean` | `false` | Guard flag — ensures the update check runs exactly once | `LaunchedEffect(Unit)` | `LaunchedEffect(Unit)` guard |
 
 #### 1.2.2 `when(currentScreen)` Rendering Matrix
@@ -679,7 +679,7 @@ LaunchedEffect(Unit) {
 
 #### Endpoint
 ```
-GET https://api.github.com/repos/Izzeddin-Hammad/TUD-TimeTable-APP/releases
+GET https://api.github.com/repos/Izzeddin-Hammad/TUD-TimeTable-APP/contents/releases
 ```
 
 #### OkHttp Client
@@ -687,14 +687,12 @@ Lightweight client with 10s connect / 15s read timeouts — **no** `RateLimitInt
 
 #### `checkForUpdate(): UpdateResult`
 
-1. Executes `GET` on `RELEASES_URL`.
-2. Parses response as `JSONArray`.
-3. Takes the first (latest) release.
-4. Reads `tag_name` (e.g. `"v1.4"`).
-5. Calls `extractDownloadUrl(release: JSONObject)`:
-   - Searches `assets[]` for an asset whose `name` ends with `.apk` and returns its `browser_download_url`.
-   - Falls back to the first asset's `browser_download_url` if no `.apk` name is found.
-6. Compares versions via `isNewerThan(remote, local)`:
+1. Executes `GET` on `CONTENTS_URL` (the GitHub Contents API for the `releases/` directory).
+2. Parses response as `JSONArray` of file entries.
+3. Iterates all entries, matching each `name` against regex `TimeTable-v([\d.]+)-debug\.apk`.
+4. For each matching APK file, extracts the version string (e.g. `"1.17"`) and its `download_url`.
+5. Selects the entry with the highest version number.
+6. Compares the best remote version against the local `BuildConfig.VERSION_NAME` via `isNewerThan(remote, local)`:
    - Strips leading `v`/`V`.
    - Splits on `.` and compares each segment numerically.
    - Falls back to lexicographic comparison for non-numeric segments.
@@ -892,7 +890,7 @@ Below is every file in `app/src/main/java/com/example/timetablescraper/` with it
 ---
 
 #### **`update/UpdateChecker.kt`**
-- **Role:** GitHub Releases API client. `checkForUpdate()` returns `UpdateResult` with version comparison.
+- **Role:** GitHub Contents API client. Lists APK files in the `releases/` directory and returns the latest version's download URL.
 - **Dependents:** `MainActivity.kt` (calls `UpdateChecker.checkForUpdate()`), `BuildConfig` (for local `VERSION_NAME`).
 
 #### **`update/UpdateManager.kt`**

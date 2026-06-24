@@ -6,21 +6,23 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Queries the GitHub Releases API for the latest release tag and APK download URL.
+ * Queries the GitHub Contents API for APK files in the `releases/` directory
+ * and returns the latest version's download URL.
  *
  * ## Endpoint
- * `GET /repos/Izzeddin-Hammad/TUD-TimeTable-APP/releases`
+ * `GET /repos/Izzeddin-Hammad/TUD-TimeTable-APP/contents/releases`
  *
  * ## Response parsing
- * Extracts the first (latest) release's `tag_name` (e.g. "v1.4") and the
- * direct APK download URL from `assets[].browser_download_url`.
+ * The Contents API returns a JSON array of file entries. Each entry has a
+ * `name` (e.g. "TimeTable-v1.17-debug.apk") and a `download_url`.
+ * We scan all entries for APK files, parse the version from the filename,
+ * and pick the newest one.
  *
  * ## Version comparison
- * The remote `tag_name` is compared against the local [BuildConfig.VERSION_NAME]
+ * The remote version is compared against the local [BuildConfig.VERSION_NAME]
  * using semantic versioning rules (see [isNewerThan]).
  */
 object UpdateChecker {
@@ -31,9 +33,12 @@ object UpdateChecker {
     /** GitHub API base URL. */
     private const val GITHUB_API_BASE = "https://api.github.com"
 
-    /** Full releases endpoint URL. */
-    private val RELEASES_URL =
-        "$GITHUB_API_BASE/repos/$GITHUB_REPO/releases"
+    /** Contents API URL for the releases directory. */
+    private val CONTENTS_URL =
+        "$GITHUB_API_BASE/repos/$GITHUB_REPO/contents/releases"
+
+    /** Regex to parse version from APK filename: "TimeTable-v1.17-debug.apk" → "v1.17" */
+    private val APK_VERSION_REGEX = Regex("TimeTable-v([\\d.]+)-debug\\.apk")
 
     /** Lightweight OkHttp client dedicated to update checks (no rate-limiting needed). */
     private val client = OkHttpClient.Builder()
@@ -45,8 +50,8 @@ object UpdateChecker {
      * Result of an update check.
      *
      * @param updateAvailable `true` if the remote version is strictly newer.
-     * @param remoteVersion   The remote tag name (e.g. "v1.4"), or `null` on error.
-     * @param downloadUrl     The APK download URL from the release assets, or `null`.
+     * @param remoteVersion   The remote version string (e.g. "1.17"), or `null` on error.
+     * @param downloadUrl     The APK download URL, or `null`.
      * @param errorMessage    Human-readable error description, or `null` on success.
      */
     data class UpdateResult(
@@ -57,7 +62,8 @@ object UpdateChecker {
     )
 
     /**
-     * Query the GitHub API for the latest release.
+     * Check for a newer version of the app by listing the `releases/` directory
+     * on GitHub via the Contents API.
      *
      * Called from a coroutine on [Dispatchers.IO].
      *
@@ -66,7 +72,7 @@ object UpdateChecker {
     suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url(RELEASES_URL)
+                .url(CONTENTS_URL)
                 .header("Accept", "application/json")
                 .get()
                 .build()
@@ -85,28 +91,48 @@ object UpdateChecker {
                         errorMessage = "Empty response from GitHub API"
                     )
 
-                val releases = JSONArray(body)
-                if (releases.length() == 0) {
+                val entries = JSONArray(body)
+                if (entries.length() == 0) {
                     return@withContext UpdateResult(
                         updateAvailable = false,
-                        errorMessage = "No releases found on GitHub"
+                        errorMessage = "No APK files found in releases/"
                     )
                 }
 
-                // The first element is the latest release
-                val latest = releases.getJSONObject(0)
-                val tagName = latest.getString("tag_name")
+                // Scan all files for APK entries, extract version and URL
+                var bestVersion: String? = null
+                var bestDownloadUrl: String? = null
 
-                // Extract the APK download URL from assets
-                val downloadUrl = extractDownloadUrl(latest)
+                for (i in 0 until entries.length()) {
+                    val entry = entries.getJSONObject(i)
+                    val name = entry.optString("name", "")
+                    val match = APK_VERSION_REGEX.find(name) ?: continue
+
+                    val version = match.groupValues[1] // e.g. "1.17"
+                    val downloadUrl = entry.optString("download_url", "")
+
+                    if (downloadUrl.isNotEmpty()) {
+                        if (bestVersion == null || isNewerThan("v$version", "v$bestVersion")) {
+                            bestVersion = version
+                            bestDownloadUrl = downloadUrl
+                        }
+                    }
+                }
+
+                if (bestVersion == null) {
+                    return@withContext UpdateResult(
+                        updateAvailable = false,
+                        errorMessage = "No valid APK files found"
+                    )
+                }
 
                 val localVersion = BuildConfig.VERSION_NAME
-                val updateAvailable = isNewerThan(tagName, localVersion)
+                val updateAvailable = isNewerThan("v$bestVersion", localVersion)
 
                 UpdateResult(
                     updateAvailable = updateAvailable,
-                    remoteVersion = tagName,
-                    downloadUrl = downloadUrl
+                    remoteVersion = bestVersion,
+                    downloadUrl = bestDownloadUrl
                 )
             }
         } catch (e: Exception) {
@@ -115,31 +141,6 @@ object UpdateChecker {
                 errorMessage = e.message ?: "Unknown error checking for updates"
             )
         }
-    }
-
-    /**
-     * Extract the APK download URL from a release JSON object.
-     *
-     * Looks through `assets` for an asset whose `name` ends with `.apk` and
-     * returns its `browser_download_url`. Falls back to the first asset's
-     * `browser_download_url` if no `.apk` name is found.
-     */
-    private fun extractDownloadUrl(release: JSONObject): String? {
-        val assets = release.optJSONArray("assets") ?: return null
-
-        for (i in 0 until assets.length()) {
-            val asset = assets.getJSONObject(i)
-            val name = asset.optString("name", "")
-            // Prefer the APK asset
-            if (name.endsWith(".apk")) {
-                val url = asset.optString("browser_download_url")
-                if (url.isNotEmpty()) return url
-            }
-        }
-        // Fallback: return the first asset's browser_download_url
-        return if (assets.length() > 0) {
-            assets.getJSONObject(0).optString("browser_download_url").ifEmpty { null }
-        } else null
     }
 
     /**

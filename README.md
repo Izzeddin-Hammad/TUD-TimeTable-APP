@@ -92,7 +92,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 │    └─ WorkManager (strategy-aware periodic sync)             │
 │         └─ SyncNotificationManager                           │
 ├─ Update Layer ───────────────────────────────────────────────┤
-│  UpdateChecker → GitHub Releases API                        │
+│  UpdateChecker → GitHub Contents API (releases/ directory)  │
 │  UpdateManager → DownloadManager → FileProvider → Installer  │
 └──────────────────────────────────────────────────────────────┘
 ```
