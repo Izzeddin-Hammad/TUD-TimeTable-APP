@@ -471,10 +471,10 @@ fun SettingsScreen(
                                 color = if (hideEmptyWeeks) MaterialTheme.colorScheme.onSurfaceVariant
                                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                             )
-                            if (hideEmptyWeeks) {
+                            if (!hideEmptyWeeks) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    "⚠️ When enabled, semester auto-detection will not work.",
+                                    "⚠️ When disabled, semester auto-detection will not work.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error
                                 )
