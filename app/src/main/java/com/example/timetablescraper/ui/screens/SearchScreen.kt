@@ -36,6 +36,8 @@ import com.example.timetablescraper.api.cache.SearchHistoryEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +61,12 @@ fun SearchScreen(
 
     var showHistoryDialog by remember { mutableStateOf(false) }
     var historyEntries by remember { mutableStateOf<List<SearchHistoryEntity>>(emptyList()) }
+    val focusRequester = remember { FocusRequester() }
+
+    // Auto-focus the search field and show keyboard when the search page opens
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
 
     // UI refresh key — every tap increments it so the screen recomposes
     var uiTapKey by remember { mutableStateOf(0) }
@@ -150,7 +158,7 @@ fun SearchScreen(
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))

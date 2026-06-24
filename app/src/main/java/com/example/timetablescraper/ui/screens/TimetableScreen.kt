@@ -285,13 +285,18 @@ fun TimetableScreen(
 
         // ── Phase 2: full load (cache-hit short-circuit or network) ───
         try {
+            // Include group in cached course name for full display in Settings
+            val cacheName = if (selectedGroup != null) {
+                val fullGroup = selectedGroup!!.split("/").drop(1).joinToString("/")
+                "${selectedCourse.name} ($fullGroup)"
+            } else selectedCourse.name
             val result = repository.loadTimetable(
                 courseIdentity = selectedCourse.identity,
                 timetableTypeId = selectedCourse.timetable_type_id,
                 mondayDate = currentMonday,
                 forceRefresh = forceRefresh,
                 context = context,
-                courseName = selectedCourse.name
+                courseName = cacheName
             )
 
             // Convert to UI events off the main thread

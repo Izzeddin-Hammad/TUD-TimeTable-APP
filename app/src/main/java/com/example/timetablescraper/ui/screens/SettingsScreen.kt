@@ -550,9 +550,9 @@ fun SettingsScreen(
                             val saved = savedCourses.firstOrNull { it.identity == id }
                             val displayName = when {
                                 cachedPair != null && cachedPair.courseName.isNotBlank() ->
-                                    cachedPair.courseName.substringBefore("/")
+                                    cachedPair.courseName
                                 saved != null ->
-                                    saved.name.substringBefore("/")
+                                    saved.name
                                 else -> {
                                     try { java.net.URLDecoder.decode(id, "UTF-8").take(24) }
                                     catch (_: Exception) { id.take(24) }

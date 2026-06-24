@@ -8,9 +8,9 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 
 ### Timetable
 - **Direct API Integration** — Connects to the TU Dublin Scientia timetable API with Anonymous auth
-- **Course Search** — Search by course code or name with real-time debounced results; stale queries are discarded mid-flight
+- **Course Search** — Search by course code or name with real-time debounced results; stale queries are discarded mid-flight. **Keyboard auto-focuses** when the search page opens
 - **Full-Year Week Classifier** — Single API request classifies all 30 academic weeks as active or empty instantly (replaces the old 60-second serial scanner)
-- **Hide Empty Weeks** — Toggle in Settings to remove weeks with no classes from the dropdown (default: on)
+- **Hide Empty Weeks** — Toggle in Settings to remove weeks with no classes from the dropdown (default: on). When enabled, a warning notes that semester auto-detection will not work
 - **Smart Semester Detection** — Auto-detects Semester 1 & 2 boundaries by finding a ≥21-day gap between active weeks after November
 - **Week Dropdown** — Numbered weeks (W1, W2, …) with empty weeks optionally hidden
 - **Semester Tabs** — Wide Semester 1 / Semester 2 tabs for quick semester switching
@@ -20,11 +20,17 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Offline Cache** — Room database caches timetables per week; view your schedule even without internet
 - **Stale-While-Revalidate** — Cache renders instantly (~5ms), background refresh updates silently
 
+### Timetable Change Detection
+- **Real-Time Diff** — When the timetable refreshes from the network, the app compares old vs new data
+- **Change Popup** — Displays an AlertDialog listing every added 🟢, removed 🔴, or modified 🟡 class session
+- **Detailed Info** — Each change shows the day, time range, module code, title, and exactly what changed (e.g. "Room: A → B")
+
 ### Pinning & Bookmarks
 - **Pin to Home** — Star a course to make it your home screen; opens instantly on launch. Only one course can be pinned at a time
 - **Star = Auto-Save** — Starring a course automatically bookmarks it. Unstarring does NOT unsave
+- **Full Course Names** — Saved/bookmarked courses include the year and subgroup (e.g. "TU859/Computer Science (Y3/MLAI/G2)")
 - **Bookmark Courses** — Save courses for quick access from Settings. Bookmarking auto-stars (with replacement confirmation)
-- **Home Button in Search** — A home icon appears in the search bar when a course is pinned, for one-tap navigation back
+- **Home Button in Search** — A home icon appears in the search bar when a course is pinned, for one-tap navigation back. Button order: History → Home → Settings
 
 ### Sync & Cache
 - **Configurable Sync Strategy** — Three-mode pattern:
@@ -33,7 +39,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
   - **Custom (days)** — User-defined day interval
 - **Background Sync** — WorkManager periodically refreshes cached timetables with strategy-aware scheduling
 - **Reactive Background Sync** — UI polls Room every 2 minutes; if WorkManager updated cache, the timetable refreshes automatically
-- **Granular Cache Management** — Delete individual course caches from Settings without wiping everything
+- **Granular Cache Management** — Delete individual course caches from Settings without wiping everything. Cached courses display **full names** including year and subgroup
 - **Sync Notification System** — Background sync completions post notifications with success/fail status and timestamp
 - **Client-Side Rate Limiting** — Token Bucket OkHttp interceptor (5 req/10s); returns synthetic 429 to trigger fail-safe fallback
 
@@ -53,8 +59,9 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 
 ### UI/UX
 - **Material 3 UI** — Jetpack Compose with dynamic color support and smooth crossfade animations
-- **In-App Self-Updating** — Queries GitHub Releases API on launch; prompts with an update dialog when a newer version is detected
-- **Search History** — Quick re-access to recent searches
+- **In-App Self-Updating** — Scans the `releases/` directory on GitHub (via Contents API) for new APK files; prompts with an update dialog when a newer version is detected
+- **Search History** — Quick re-access to recent searches with single-entry delete and "Delete All" button
+- **Auto-Focus Keyboard** — The search field gains focus and opens the keyboard automatically when the search page opens
 - **Subgroup UI** — 32dp expand arrow with "Tap to reveal course sub-groups" label; full subgroup path displayed in filter chips
 - **Auto-Dismiss Cache Status** — "🌐 Updated from server" banner auto-dismisses after 4 seconds
 
@@ -70,7 +77,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 │  Jetpack Compose UI (single-Activity, all state hoisted)     │
 │  ┌─ SearchScreen ─┐  ┌─ TimetableScreen ─┐  ┌─ Settings ─┐  │
 │  │ (course search) │  │ (week view, pull  │  │ (sync,     │  │
-│  │                 │  │  star, bookmark,  │  │  cache,    │  │
+│  │ auto-focus kbd  │  │  star, bookmark,  │  │  cache,    │  │
 │  │                 │  │  semester tabs)   │  │  updates)  │  │
 │  └────────────────┘  └───────────────────┘  └────────────┘  │
 │         ▲                    ▲                     ▲         │
@@ -86,6 +93,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 ├─ Data Layer ─────────────────────────────────────────────────┤
 │  TimetableRepository (strategy-aware TTL, request debouncer) │
 │    ├─ Room Database (per-week indexed key-value cache)       │
+│    │     └─ Change detection: diff old vs new on refresh     │
 │    ├─ TimetableApiService → OkHttp → Scientia Publish API   │
 │    │     ├─ RequestDebouncer (URL-keyed deduplication)       │
 │    │     └─ RateLimitInterceptor (token bucket; 5 req/10s)  │
@@ -98,7 +106,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 ```
 
 ### Data Flow
-1. User searches for a course → API returns matching programmes (debounced, stale-guarded)
+1. User searches for a course → API returns matching programmes (debounced, stale-guarded). **Keyboard auto-focuses on the search field**
 2. Selecting a course loads the timetable via two-phase stale-while-revalidate:
    - **Phase 1 (instant)**: Room cache read + `toUiEvent` parsing on `Dispatchers.Default` → UI renders in ~5ms
    - **Phase 2 (background)**: `TimetableRepository.loadTimetable()` — fresh cache short-circuits; stale cache triggers network fetch silently
@@ -111,6 +119,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 9. WorkManager refreshes cached data per the user's chosen SyncStrategy
 10. A 2-minute background poll detects WorkManager cache updates and refreshes the UI automatically
 11. Pull-to-refresh fetches fresh data but is rate-limited to once every 24 hours
+12. **When network data arrives, the app diffs it against the old cache and shows a change notification popup** with day, time, module, and what changed
 
 ### Sync Strategies
 | Mode | TTL | Behavior |
@@ -146,7 +155,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v1.18)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.18-debug.apk)
+[**Download latest APK (v1.19)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.19-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 
