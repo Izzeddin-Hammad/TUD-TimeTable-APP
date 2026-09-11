@@ -144,21 +144,13 @@ object UpdateChecker {
     }
 
     /**
-     * Compare two version strings using semantic versioning.
+     * Compare two version strings (e.g. `"v1.24"` against `"1.22"`).
      *
-     * Strips a leading "v" prefix (e.g. "v1.4" → "1.4") before comparison.
-     * Returns `true` if [remote] is strictly greater than [local].
-     *
-     * Supports dotted numeric versions (e.g. "1.2", "1.2.1", "2.0").
-     * Non-numeric segments are compared lexicographically as a fallback.
-     */
-    /**
-     * Platform-independent version comparison — delegates to the tested [Semver] implementation.
-     *
-     * This used to be a second, private implementation of the same rules, which could only be
-     * exercised by reaching into it with Java reflection (see the old `UpdateCheckerTest`).
-     * Behaviour now lives in one place, with direct unit tests, and this method only keeps its
-     * name so the call site below stays readable.
+     * Delegates to [com.example.timetablescraper.api.Semver] so the rules live in exactly one
+     * place. This used to be a private duplicate of the same logic, reachable in tests only by
+     * reflection. A leading `v` and any non-numeric suffix are ignored, so an APK filename
+     * version (`1.24` from `TimeTable-v1.24-debug.apk`) and `BuildConfig.VERSION_NAME` compare
+     * numerically, and a missing component counts as zero (`1.22` == `1.22.0`).
      */
     private fun isNewerThan(remote: String, local: String): Boolean =
         com.example.timetablescraper.api.Semver.isNewer(remote, local)

@@ -96,6 +96,8 @@ if [[ "${1:-}" == "--compile" ]]; then
   unpack "kotlinx-coroutines-core-jvm" coroutines.jar
   unpack "androidx.compose.runtime/runtime-android" compose-runtime.jar
   unpack "androidx.compose.runtime/runtime-annotation-android" compose-annotation.jar
+  # androidx.core supplies FileProvider, used by the in-app update install path.
+  unpack "androidx.core/core/" core.jar
 
   CPT="$STDLIB:$ANDROID_JAR"
   for jar in "$OUT"/lib/*.jar; do CPT="$CPT:$jar"; done
@@ -107,7 +109,9 @@ if [[ "${1:-}" == "--compile" ]]; then
     app/src/main/java/com/example/timetablescraper/CrashHandler.kt \
     app/src/main/java/com/example/timetablescraper/util/SafePrefs.kt \
     app/src/main/java/com/example/timetablescraper/api/*.kt \
-    app/src/main/java/com/example/timetablescraper/api/cache/*.kt 2>&1 | grep -v "^warning:" || true
+    app/src/main/java/com/example/timetablescraper/api/cache/*.kt \
+    app/src/main/java/com/example/timetablescraper/update/*.kt \
+    tools/stubs/BuildConfigStub.kt 2>&1 | grep -v "^warning:" || true
   COUNT="$(find "$OUT/compile-check" -name '*.class' 2>/dev/null | wc -l | tr -d ' ')"
   [[ "$COUNT" -gt 0 ]] || { echo "harness: compile check failed" >&2; exit 1; }
   echo "▸ compile check OK ($COUNT classes)"
