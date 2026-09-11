@@ -99,6 +99,11 @@ sealed class SyncStrategy {
                     val parts = token.split(":")
                     if (parts.size >= 3) {
                         val v = parts[1].toIntOrNull() ?: return Daily
+                        // A non-positive value would violate Custom's `require(value > 0)` and
+                        // throw out of this function. Callers read tokens straight from
+                        // SharedPreferences during app launch, so a corrupt or hand-edited
+                        // token must degrade to Daily instead of crashing the launch path.
+                        if (v <= 0) return Daily
                         val u = try { TimeUnit.valueOf(parts[2]) } catch (_: Exception) { TimeUnit.HOURS }
                         Custom(v, u)
                     } else Daily
