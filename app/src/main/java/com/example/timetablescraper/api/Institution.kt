@@ -16,7 +16,7 @@ data class Institution(
     override val institutionId: String,
     override val programmeTypeId: String,
     override val referer: String,
-    override val userAgent: String = "TimeTableApp/1.1 (Open Source Student Utility; +https://github.com/Izzeddin-Hammad/TimeTable-APP)"
+    override val userAgent: String = UPSTREAM_USER_AGENT
 ) : InstitutionConfiguration {
 
     @Deprecated(

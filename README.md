@@ -155,9 +155,17 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v1.24)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.24-debug.apk)
+[**Download latest APK (v1.25)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.25-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
+
+### What's new in v1.25
+
+One behaviour change — the rest is the v1.24 work below. Notes: [`releases/TimeTable-v1.25.md`](releases/TimeTable-v1.25.md).
+
+- **The app now reports its real version to the university API.** The request `User-Agent` was hardcoded as `TimeTableApp/1.1` and stayed there while the app reached 1.22, so campus network logs would misread current traffic as an ancient client. It now follows `versionName`, so it cannot go stale again
+- **Its contact link pointed at the wrong repository** (`…/TimeTable-APP`, which does not exist); it now points at `…/TUD-TimeTable-APP`
+- The value lives in one place instead of being duplicated across two configuration classes
 
 ### What's new in v1.24
 

@@ -10,6 +10,6 @@ object BuildConfig {
     const val APPLICATION_ID: String = "com.example.timetablescraper"
     const val BUILD_TYPE: String = "debug"
     const val DEBUG: Boolean = true
-    const val VERSION_CODE: Int = 24
-    const val VERSION_NAME: String = "1.24"
+    const val VERSION_CODE: Int = 25
+    const val VERSION_NAME: String = "1.25"
 }

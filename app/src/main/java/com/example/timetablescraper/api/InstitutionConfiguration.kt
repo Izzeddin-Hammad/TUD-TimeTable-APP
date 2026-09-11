@@ -1,5 +1,21 @@
 package com.example.timetablescraper.api
 
+import com.example.timetablescraper.BuildConfig
+
+/**
+ * User-Agent sent on every request to an institution's API.
+ *
+ * The version is taken from [BuildConfig] rather than typed out by hand. It previously read
+ * `TimeTableApp/1.1` while the app was on 1.22, so a university's request log would misread
+ * current traffic as an ancient client; deriving it means it cannot go stale again.
+ *
+ * The trailing product comment is deliberate: it identifies the traffic as an open-source
+ * student project so campus network teams can whitelist it or reach the maintainer.
+ */
+internal val UPSTREAM_USER_AGENT: String =
+    "TimeTableApp/${BuildConfig.VERSION_NAME} " +
+        "(Open Source Student Utility; +https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP)"
+
 /**
  * Fully dynamic institution configuration — zero hardcoded values.
  *
@@ -78,7 +94,7 @@ internal data class DefaultInstitution(
     override val institutionId: String = "50a55ae1-1c87-4dea-bb73-c9e67941e1fd",
     override val programmeTypeId: String = "241e4d36-93f2-4938-9e15-d4536fe3b2eb",
     override val referer: String = "https://timetables.tudublin.ie/",
-    override val userAgent: String = "TimeTableApp/1.1 (Open Source Student Utility; +https://github.com/Izzeddin-Hammad/TimeTable-APP)"
+    override val userAgent: String = UPSTREAM_USER_AGENT
 ) : InstitutionConfiguration
 
 /**
