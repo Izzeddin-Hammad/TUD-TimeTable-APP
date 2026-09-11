@@ -301,8 +301,11 @@ object SyncPreferences {
      * Empty weeks are derived: allAcademicWeeks - activeWeeks.
      */
     fun getActiveWeeks(context: Context, courseIdentity: String): Set<String>? {
+        // SafePrefs.stringSet never returns null: an absent key yields an empty set. Both
+        // "never classified" and "classified as empty" mean the same thing to callers, so
+        // they collapse to null here.
         val set = SafePrefs.stringSet(prefs(context).all, KEY_ACTIVE_WEEKS_PREFIX + courseIdentity)
-        return if (set != null && set.isNotEmpty()) set else null
+        return set.takeIf { it.isNotEmpty() }
     }
 
     /** Persist the active-week classification so next launch is instant. */

@@ -13,3 +13,9 @@
 
 # Local JVM test-harness output (tools/jvm-test-harness.sh)
 .harness-out/
+
+# Workspace-local Gradle home used when ~/.gradle is not writable (build-agent use)
+.gradle-local/
+
+# Kotlin build-time scratch dir
+.kotlin/
