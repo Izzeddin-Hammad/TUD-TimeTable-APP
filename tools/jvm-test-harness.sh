@@ -12,8 +12,25 @@
 # preference coercion, semver). Room, WorkManager, Compose and networking tests still need
 # `./gradlew test` / `./gradlew connectedAndroidTest`.
 #
+# ── When `~/.gradle` is not writable (CI containers, sandboxes) ────────────────────────────
+#
+# `./gradlew` fails in that situation with
+#   FileNotFoundException: …/gradle-9.3.1-bin.zip.lck (Operation not permitted)
+# because the wrapper and Gradle's home both live there. A real Gradle build still works by
+# combining a workspace-local Gradle home with a read-only dependency cache, which lets Gradle
+# write its own state while reading the pre-populated artifacts:
+#
+#   GRADLE_DIST=$(ls -d ~/.gradle/wrapper/dists/gradle-*/bin/*/gradle-*/ | head -1)   # extracted dist
+#   GRADLE_USER_HOME="$PWD/.gradle-local" \
+#   GRADLE_RO_DEP_CACHE="$HOME/.gradle/caches" \
+#     "$GRADLE_DIST"bin/gradle --console=plain test assembleDebug
+#
+# Verified: `test` → 159 tests, 0 failures; `assembleDebug` → a 25 MB APK.
+# `.gradle-local/` is git-ignored; delete it afterwards to reclaim ~1 GB.
+#
 # Usage:
 #   tools/jvm-test-harness.sh              # compile + run every pure-logic test class
+#   tools/jvm-test-harness.sh --compile    # type-check the non-UI production source set
 #   tools/jvm-test-harness.sh --list       # show what would run
 #
 set -uo pipefail
