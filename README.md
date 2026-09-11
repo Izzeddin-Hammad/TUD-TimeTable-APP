@@ -45,7 +45,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 
 ### Resilience & Safety
 - **Global Crash Handler** — Uncaught exceptions are persisted and recovered on next launch via a dedicated Fatal Error recovery screen
-- **Fatal Error Screen** — Shows "Something went wrong" with "Clear Cache & Restart" and "Try Again" buttons
+- **Fatal Error Screen** — Shows "Something went wrong" with "Clear Cache & Restart" (clears the timetable cache only — your saved courses and pinned course are kept) and "Try Again" buttons
 - **Coroutine Exception Handler** — Unhandled coroutine crashes are caught at the root scope and persisted for next-launch recovery
 - **Fail-Safe Fallback** — HTTP 429/500 and network errors fall back to stale cache with an "⚠️ Offline / Cached Mode" banner
 - **Request Minimization** — Singleton request debouncer deduplicates concurrent API calls to the same URL
@@ -117,7 +117,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 7. The week dropdown shows only non-empty weeks when the "Hide empty weeks" toggle is on
 8. View state (semester, week, day, group) is persisted per course across app restarts
 9. WorkManager refreshes cached data per the user's chosen SyncStrategy
-10. A 2-minute background poll detects WorkManager cache updates and refreshes the UI automatically
+10. The screen observes the Room cache, so a WorkManager sync refreshes the UI the moment the cached week actually changes — no polling
 11. Pull-to-refresh fetches fresh data but is rate-limited to once every 24 hours
 12. **When network data arrives, the app diffs it against the old cache and shows a change notification popup** with day, time, module, and what changed
 
@@ -150,14 +150,28 @@ Network calls are completely blocked if the app is opened while the cache is sti
 | Server hangs (no response) | 15s connect timeout + 30s read timeout; no automatic retries |
 | HTTP 429 / 500+ | Repository `catch(Exception)` triggers stale Room cache fallback |
 | Firewall returns login page | `optJSONArray("Results") ?: JSONArray()` — graceful empty results, no crash |
-| Worker updates Room while user is viewing | 2-minute polling `LaunchedEffect` detects changes, refreshes UI automatically |
+| Worker updates Room while user is viewing | The screen collects the Room `Flow` for the visible week, so it repaints when the rows change and idles otherwise (previously a 2-minute polling `LaunchedEffect`) |
 | Timezone boundary (midnight) | All `LocalDate.now()` calls use `Europe/Dublin` with safe `ZoneId` fallback |
 
 ## Download
 
-[**Download latest APK (v1.22)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.22-debug.apk)
+[**Download latest APK (v1.24)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.24-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
+
+### What's new in v1.24
+
+A student-experience pass: 19 defects fixed, most of them about the timetable telling the truth. Full notes: [`releases/TimeTable-v1.24.md`](releases/TimeTable-v1.24.md).
+
+- **Your subgroup filter no longer hides all-cohort lectures** — classes with no specific group apply to everyone, and now stay visible when you pick G1/G2/…
+- **Fewer false change alerts, and no missed ones** — sessions are compared one-to-one, so a room swap is reported once and an unchanged week reports nothing
+- **Cancelled classes no longer come back** — a week that comes back empty is cached as empty instead of resurrecting the old rows
+- **No more crash loop from corrupt settings** — a bad stored value falls back to its default instead of crashing on launch
+- **"Clear Cache & Restart" keeps your data** — it clears the timetable cache only; saved/bookmarked courses, the pinned course and your group choices survive
+- **The current week is always reachable** — including May and August, outside the Sep–Apr teaching window
+- **Month names are always English**, not the device language
+- **Less background battery use** — the timetable refreshes when the cached week actually changes, instead of every 2 minutes
+- **Cleartext HTTP is no longer permitted** (every endpoint was already HTTPS)
 
 ## Setup (for developers)
 
