@@ -155,9 +155,21 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v1.26)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.26-debug.apk)
+[**Download latest APK (v1.27)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.27-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
+>
+> **If your app currently shows "Something went wrong" on launch, install this APK directly**
+> rather than using "Check for updates" — the installed build crashes before that screen is
+> reachable. Fixes a crash that affected v1.24–v1.26. Your saved courses and settings are not touched.
+
+### What's new in v1.27
+
+Fixes a launch crash that affected every build from v1.24 to v1.26. Notes: [`releases/TimeTable-v1.27.md`](releases/TimeTable-v1.27.md).
+
+- **The app opens again.** The database's destructive-fallback version list (added in v1.24) included version 6, which is also the start of the registered `6 → 7` migration. Room rejects that combination while *creating* the database, so the app crashed on every launch — and the recovery screen's restart put it straight back there, which looked like buttons that did nothing
+- **This cannot ship again.** Room's own validator is now exercised by a unit test against the shipped plan, so an inconsistent migration list fails the build instead of a user's phone
+- The broken v1.24–v1.26 APKs were removed from `releases/` so they cannot be installed by mistake
 
 ### What's new in v1.26
 

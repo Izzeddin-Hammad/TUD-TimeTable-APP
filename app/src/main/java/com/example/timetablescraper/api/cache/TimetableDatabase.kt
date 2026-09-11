@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [CachedEventEntity::class, SavedCourseEntity::class, SearchHistoryEntity::class],
-    version = 7,
+    version = MigrationPlan.CURRENT_VERSION,
     exportSchema = false
 )
 abstract class TimetableDatabase : RoomDatabase() {
@@ -94,13 +94,20 @@ abstract class TimetableDatabase : RoomDatabase() {
                     "timetable_cache.db"
                 )
                     .addMigrations(MIGRATION_6_7)
-                    // Only versions 1–6 may reset destructively: their schemas were never
-                    // exported (`exportSchema = false`) and cannot be reconstructed, so there is
-                    // no migration to write for them. Every *future* version gap now fails loudly
-                    // instead of silently wiping the student's saved courses and search history.
-                    // This is why the blanket `fallbackToDestructiveMigration()` was replaced by
-                    // an explicit, reviewed list.
-                    .fallbackToDestructiveMigrationFrom(true, 1, 2, 3, 4, 5, 6)
+                    // Versions 1–5 may reset destructively: their schemas were never exported
+                    // (`exportSchema = false`) and cannot be reconstructed, so no migration can be
+                    // written for them.
+                    //
+                    // Version 6 is deliberately absent. 6 is the start of the registered 6 → 7
+                    // migration, and Room rejects a version that appears in both — see
+                    // RoomDatabase.validateMigrationsNotRequired. Listing it here threw
+                    // IllegalArgumentException from inside build(), i.e. while the database was
+                    // being *created*, so the app crashed on every launch before any UI appeared.
+                    // MigrationPlan holds the numbers and MigrationPlanTest enforces the rule.
+                    .fallbackToDestructiveMigrationFrom(
+                        MigrationPlan.DESTRUCTIVE_DROP_ALL_TABLES,
+                        *MigrationPlan.DESTRUCTIVE_FALLBACK_FROM.toIntArray(),
+                    )
                     .addCallback(object : Callback() {
                         override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
                             super.onDestructiveMigration(db)
