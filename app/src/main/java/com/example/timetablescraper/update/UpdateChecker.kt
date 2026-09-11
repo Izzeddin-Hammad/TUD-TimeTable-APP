@@ -152,29 +152,14 @@ object UpdateChecker {
      * Supports dotted numeric versions (e.g. "1.2", "1.2.1", "2.0").
      * Non-numeric segments are compared lexicographically as a fallback.
      */
-    private fun isNewerThan(remote: String, local: String): Boolean {
-        val r = remote.trimStart('v', 'V')
-        val l = local.trimStart('v', 'V')
-
-        val rParts = r.split(".")
-        val lParts = l.split(".")
-
-        val maxLen = maxOf(rParts.size, lParts.size)
-        for (i in 0 until maxLen) {
-            val rp = rParts.getOrElse(i) { "0" }
-            val lp = lParts.getOrElse(i) { "0" }
-
-            val rn = rp.toIntOrNull()
-            val ln = lp.toIntOrNull()
-
-            if (rn != null && ln != null) {
-                if (rn != ln) return rn > ln
-            } else {
-                // Fallback to lexicographic comparison
-                val cmp = rp.compareTo(lp)
-                if (cmp != 0) return cmp > 0
-            }
-        }
-        return false // versions are equal
-    }
+    /**
+     * Platform-independent version comparison — delegates to the tested [Semver] implementation.
+     *
+     * This used to be a second, private implementation of the same rules, which could only be
+     * exercised by reaching into it with Java reflection (see the old `UpdateCheckerTest`).
+     * Behaviour now lives in one place, with direct unit tests, and this method only keeps its
+     * name so the call site below stays readable.
+     */
+    private fun isNewerThan(remote: String, local: String): Boolean =
+        com.example.timetablescraper.api.Semver.isNewer(remote, local)
 }

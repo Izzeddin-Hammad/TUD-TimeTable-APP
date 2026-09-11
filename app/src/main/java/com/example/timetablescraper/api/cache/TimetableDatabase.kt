@@ -94,7 +94,13 @@ abstract class TimetableDatabase : RoomDatabase() {
                     "timetable_cache.db"
                 )
                     .addMigrations(MIGRATION_6_7)
-                    .fallbackToDestructiveMigration()
+                    // Only versions 1–6 may reset destructively: their schemas were never
+                    // exported (`exportSchema = false`) and cannot be reconstructed, so there is
+                    // no migration to write for them. Every *future* version gap now fails loudly
+                    // instead of silently wiping the student's saved courses and search history.
+                    // This is why the blanket `fallbackToDestructiveMigration()` was replaced by
+                    // an explicit, reviewed list.
+                    .fallbackToDestructiveMigrationFrom(true, 1, 2, 3, 4, 5, 6)
                     .addCallback(object : Callback() {
                         override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
                             super.onDestructiveMigration(db)

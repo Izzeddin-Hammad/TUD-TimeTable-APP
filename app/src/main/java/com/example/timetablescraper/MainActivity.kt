@@ -70,6 +70,10 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onTryAgain = {
+                            // Clear the crash flags as well as the in-memory state: otherwise a
+                            // marker that survived an earlier clear re-shows this screen after a
+                            // rotation, which reads as "Try Again did nothing".
+                            runCatching { CrashHandler.clearCrashFlag(this@MainActivity) }
                             crashState.value = null
                         }
                     )
@@ -139,7 +143,12 @@ private fun MainApp() {
 
     val repository = TimetableApplication.instance.repository
 
-    var starred by remember { mutableStateOf(SyncPreferences.getStarredCourse(context)) }
+    var starred by remember {
+        // Defensive: a corrupt custom attribute or a hand-edited preferences file must never be
+        // able to take down composition of the root screen. (Reads also go through SafePrefs now,
+        // so this is a second line of defence rather than the only one.)
+        mutableStateOf(runCatching { SyncPreferences.getStarredCourse(context) }.getOrNull())
+    }
     val initialScreen = if (starred != null) "TIMETABLE" else "SEARCH"
 
     var currentScreen by remember { mutableStateOf(initialScreen) }

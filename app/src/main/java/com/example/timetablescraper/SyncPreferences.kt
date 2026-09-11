@@ -1,5 +1,7 @@
 package com.example.timetablescraper
 
+import com.example.timetablescraper.util.SafePrefs
+
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.timetablescraper.api.SyncStrategy
@@ -44,11 +46,11 @@ object SyncPreferences {
      * anything else becomes [SyncStrategy.Daily] as the safe default.
      */
     fun getSyncStrategy(context: Context): SyncStrategy {
-        val token = prefs(context).getString(KEY_SYNC_STRATEGY_TOKEN, null)
+        val token = SafePrefs.string(prefs(context).all, KEY_SYNC_STRATEGY_TOKEN, null)
         if (token != null) return SyncStrategy.fromToken(token)
 
         // Legacy migration: if we have an old interval value, use it
-        val legacyHours = prefs(context).getInt(KEY_SYNC_INTERVAL_HOURS, 0)
+        val legacyHours = SafePrefs.int(prefs(context).all, KEY_SYNC_INTERVAL_HOURS, 0)
         if (legacyHours > 0) {
             return when (legacyHours) {
                 24  -> SyncStrategy.Daily
@@ -85,14 +87,14 @@ object SyncPreferences {
      * Returns 1 if no custom value has been stored.
      */
     fun getCustomIntervalValue(context: Context): Int =
-        prefs(context).getInt(KEY_CUSTOM_INTERVAL_VALUE, 1)
+        SafePrefs.int(prefs(context).all, KEY_CUSTOM_INTERVAL_VALUE, 1)
 
     /**
      * Get the custom interval unit name (for pre-filling the UI dropdown).
      * Returns "HOURS" if not set.
      */
     fun getCustomIntervalUnit(context: Context): String =
-        prefs(context).getString(KEY_CUSTOM_INTERVAL_UNIT, "HOURS") ?: "HOURS"
+        SafePrefs.string(prefs(context).all, KEY_CUSTOM_INTERVAL_UNIT, "HOURS") ?: "HOURS"
 
     // ═══════════════════════════════════════════════════════════════════
     // Legacy methods (retained for backward compatibility)
@@ -100,7 +102,7 @@ object SyncPreferences {
 
     /** Whether automatic background sync is enabled (default: true). */
     fun isAutoSyncEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_AUTO_SYNC, true)
+        SafePrefs.boolean(prefs(context).all, KEY_AUTO_SYNC, true)
 
     fun setAutoSyncEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_AUTO_SYNC, enabled).apply()
@@ -135,7 +137,7 @@ object SyncPreferences {
 
     /** Timestamp of the last manually-triggered sync (epoch millis). */
     fun getLastManualSync(context: Context): Long =
-        prefs(context).getLong(KEY_LAST_SYNC_MANUAL, 0L)
+        SafePrefs.long(prefs(context).all, KEY_LAST_SYNC_MANUAL, 0L)
 
     fun setLastManualSync(context: Context, timestamp: Long) {
         prefs(context).edit().putLong(KEY_LAST_SYNC_MANUAL, timestamp).apply()
@@ -148,7 +150,7 @@ object SyncPreferences {
     /** The Monday date (yyyy-MM-dd) the user has set as the first academic week.
      *  Defaults to null (auto-detect from current date). */
     fun getFirstWeekMonday(context: Context): String? =
-        prefs(context).getString(KEY_FIRST_WEEK, null)
+        SafePrefs.string(prefs(context).all, KEY_FIRST_WEEK, null)
 
     fun setFirstWeekMonday(context: Context, monday: String?) {
         prefs(context).edit().putString(KEY_FIRST_WEEK, monday).apply()
@@ -159,7 +161,7 @@ object SyncPreferences {
     private const val KEY_SEM2_START = "sem2_start_monday"
 
     fun getSem2StartMonday(context: Context): String? =
-        prefs(context).getString(KEY_SEM2_START, null)
+        SafePrefs.string(prefs(context).all, KEY_SEM2_START, null)
 
     fun setSem2StartMonday(context: Context, monday: String?) {
         prefs(context).edit().putString(KEY_SEM2_START, monday).apply()
@@ -172,9 +174,9 @@ object SyncPreferences {
     private const val KEY_STARRED_TYPE_ID = "starred_type_id"
 
     fun getStarredCourse(context: Context): Triple<String, String, String>? {
-        val id = prefs(context).getString(KEY_STARRED_ID, null) ?: return null
-        val name = prefs(context).getString(KEY_STARRED_NAME, null) ?: return null
-        val typeId = prefs(context).getString(KEY_STARRED_TYPE_ID, null) ?: return null
+        val id = SafePrefs.string(prefs(context).all, KEY_STARRED_ID, null) ?: return null
+        val name = SafePrefs.string(prefs(context).all, KEY_STARRED_NAME, null) ?: return null
+        val typeId = SafePrefs.string(prefs(context).all, KEY_STARRED_TYPE_ID, null) ?: return null
         return Triple(id, name, typeId)
     }
 
@@ -198,7 +200,7 @@ object SyncPreferences {
     private const val KEY_LAST_GROUP_PREFIX = "last_group_"
 
     fun getLastGroup(context: Context, courseIdentity: String): String? =
-        prefs(context).getString(KEY_LAST_GROUP_PREFIX + courseIdentity, null)
+        SafePrefs.string(prefs(context).all, KEY_LAST_GROUP_PREFIX + courseIdentity, null)
 
     fun setLastGroup(context: Context, courseIdentity: String, group: String) {
         prefs(context).edit().putString(KEY_LAST_GROUP_PREFIX + courseIdentity, group).apply()
@@ -228,15 +230,15 @@ object SyncPreferences {
 
     /** Restore the saved semester for a course, or 0 if never viewed. */
     fun getSavedSemester(context: Context, courseIdentity: String): Int =
-        prefs(context).getInt("$KEY_VIEW_SEMESTER_PREFIX$courseIdentity", 0)
+        SafePrefs.int(prefs(context).all, "$KEY_VIEW_SEMESTER_PREFIX$courseIdentity", 0)
 
     /** Restore the saved week for a course, or null if never viewed. */
     fun getSavedWeek(context: Context, courseIdentity: String): String? =
-        prefs(context).getString("$KEY_VIEW_WEEK_PREFIX$courseIdentity", null)
+        SafePrefs.string(prefs(context).all, "$KEY_VIEW_WEEK_PREFIX$courseIdentity", null)
 
     /** Restore the saved day index for a course, or 0 (Monday) if never viewed. */
     fun getSavedDayIndex(context: Context, courseIdentity: String): Int =
-        prefs(context).getInt("$KEY_VIEW_DAY_PREFIX$courseIdentity", 0)
+        SafePrefs.int(prefs(context).all, "$KEY_VIEW_DAY_PREFIX$courseIdentity", 0)
 
     /** Delete all view state for a course (e.g. when a course is removed). */
     fun clearCourseViewState(context: Context, courseIdentity: String) {
@@ -257,7 +259,7 @@ object SyncPreferences {
      * or 0 if never performed.
      */
     fun getLastPullRefreshTime(context: Context): Long =
-        prefs(context).getLong(KEY_LAST_PULL_REFRESH, 0L)
+        SafePrefs.long(prefs(context).all, KEY_LAST_PULL_REFRESH, 0L)
 
     /** Record that a pull-to-refresh just completed. */
     fun setLastPullRefreshTime(context: Context, time: Long) {
@@ -282,7 +284,7 @@ object SyncPreferences {
 
     /** Whether the user wants to hide weeks with no events from the week dropdown. */
     fun shouldHideEmptyWeeks(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_HIDE_EMPTY_WEEKS, true)
+        SafePrefs.boolean(prefs(context).all, KEY_HIDE_EMPTY_WEEKS, true)
 
     fun setHideEmptyWeeks(context: Context, hide: Boolean) {
         prefs(context).edit().putBoolean(KEY_HIDE_EMPTY_WEEKS, hide).apply()
@@ -299,7 +301,7 @@ object SyncPreferences {
      * Empty weeks are derived: allAcademicWeeks - activeWeeks.
      */
     fun getActiveWeeks(context: Context, courseIdentity: String): Set<String>? {
-        val set = prefs(context).getStringSet(KEY_ACTIVE_WEEKS_PREFIX + courseIdentity, null)
+        val set = SafePrefs.stringSet(prefs(context).all, KEY_ACTIVE_WEEKS_PREFIX + courseIdentity)
         return if (set != null && set.isNotEmpty()) set else null
     }
 
@@ -332,4 +334,26 @@ object SyncPreferences {
     internal fun isWeekCached(context: Context, courseIdentity: String, weekStart: String): Boolean {
         return prefs(context).contains("$KEY_CACHED_WEEK_PREFIX$courseIdentity|$weekStart")
     }
+
+    /**
+     * Clear only the cache-derived preferences: week classification, per-course view state,
+     * chosen groups and pull-to-refresh bookkeeping.
+     *
+     * Crash recovery used to wipe the entire preferences file, which also discarded user-owned
+     * state — the starred course, bookmarked courses, the sync strategy and display settings —
+     * so a button labelled "Clear Cache" did considerably more than that. Values are matched by
+     * prefix from the constants above; an unmatched key is left alone, which is the safe
+     * direction for a recovery path.
+     */
+    fun clearCacheState(context: Context) {
+        val volatilePrefixes = listOf("active_weeks_", "cached_week_", "last_group_", "view_day_", "view_semester_", "view_week_")
+        val volatileKeys = setOf("first_week_monday", "last_pull_refresh", "sem2_start_monday")
+
+        val editor = prefs(context).edit()
+        prefs(context).all.keys
+            .filter { key -> key in volatileKeys || volatilePrefixes.any { key.startsWith(it) } }
+            .forEach { editor.remove(it) }
+        editor.apply()
+    }
+
 }

@@ -14,11 +14,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.CrashHandler
-import com.example.timetablescraper.api.cache.TimetableDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.content.Context
 /**
  * Full-screen fatal error recovery composable.
  *
@@ -128,17 +126,36 @@ fun FatalErrorScreen(
                     Text("Try Again")
                 }
 
-                // Clear Cache & Restart — destructive recovery
+                // Clear Cache & Restart — recovery that never blocks the user
                 Button(
                     onClick = {
                         isClearing = true
                         scope.launch {
-                            withContext(Dispatchers.IO) {
-                                val db = TimetableDatabase.getInstance(context)
-                                db.clearAllTables()
-                                context.getSharedPreferences("timetable_sync_prefs", Context.MODE_PRIVATE)
-                                    .edit().clear().apply()
-                                CrashHandler.clearCrashFlag(context)
+                            // Recovery must not be able to strand the user on this screen: whatever
+                            // happens below, the button is re-enabled and the restart runs.
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    // Cache-only reset.
+                                    //
+                                    // This previously called `db.clearAllTables()`, which also
+                                    // deleted `saved_courses` (the student's bookmarked courses) and
+                                    // `search_history`, and then wiped *every* sync preference —
+                                    // starred course, semester/week/day view state, chosen groups.
+                                    // A button labelled "Clear Cache" must not silently destroy
+                                    // user-created data, so only the timetable cache and the
+                                    // cache-derived preferences are cleared here.
+                                    com.example.timetablescraper.TimetableApplication.instance
+                                        .repository.clearAll()
+                                    com.example.timetablescraper.SyncPreferences
+                                        .clearCacheState(context)
+                                    CrashHandler.clearCrashFlag(context)
+                                }
+                            } catch (t: Throwable) {
+                                // Even a failure to clear must not trap the user: drop the crash
+                                // flag (best effort) and restart anyway.
+                                runCatching { CrashHandler.clearCrashFlag(context) }
+                            } finally {
+                                isClearing = false
                             }
                             onClearAndRestart()
                         }

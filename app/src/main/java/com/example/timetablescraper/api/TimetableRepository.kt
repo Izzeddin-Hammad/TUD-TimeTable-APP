@@ -8,6 +8,8 @@ import com.example.timetablescraper.api.cache.SearchHistoryEntity
 import com.example.timetablescraper.api.cache.TimetableDatabase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -141,37 +143,46 @@ class TimetableRepository(
                 )
 
                 // ── 4. Persist to cache ─────────────────────────────
-                if (response.events.isNotEmpty()) {
-                    val now = System.currentTimeMillis()
-                    val entities = TimetableUtils.deduplicateEvents(response.events)
-                        .map { event ->
-                            CachedEventEntity(
-                                courseIdentity = courseIdentity,
-                                weekStart = weekStart,
-                                fetchedAt = now,
-                                moduleCode = event.module_code,
-                                title = event.title,
-                                type = event.type,
-                                lecturer = event.lecturer,
-                                room = event.room,
-                                start = event.start,
-                                end = event.end,
-                                group = event.group,
-                                courseName = courseName ?: ""
-                            )
-                        }
-                    dao.deleteForWeek(courseIdentity, weekStart)
-                    dao.insertAll(entities)
+                // A successful response always replaces the cached week — *including an empty
+                // one*: an empty week is real information ("the classes that were scheduled are
+                // gone"), and skipping the write left the old rows in the database, where the
+                // cache-fresh fast path at the top of this function then resurrected them on
+                // every later load.
+                //
+                // This only runs for a *successfully parsed* response. A failed fetch throws into
+                // the fail-safe below and never touches the cache, so an upstream outage or an API
+                // change can never delete a student's timetable.
+                val now = System.currentTimeMillis()
+                val deduped = TimetableUtils.deduplicateEvents(response.events)
+                val entities = deduped.map { event ->
+                    CachedEventEntity(
+                        courseIdentity = courseIdentity,
+                        weekStart = weekStart,
+                        fetchedAt = now,
+                        moduleCode = event.module_code,
+                        title = event.title,
+                        type = event.type,
+                        lecturer = event.lecturer,
+                        room = event.room,
+                        start = event.start,
+                        end = event.end,
+                        group = event.group,
+                        courseName = courseName ?: ""
+                    )
+                }
+                dao.deleteForWeek(courseIdentity, weekStart)
+                dao.insertAll(entities)
 
-                    // Prune old data if cache is growing large
-                    if (dao.count() > 1000) {
-                        dao.pruneOlderThan(now - PRUNE_AGE_MS)
-                    }
-
-                    // DAO is the single source of truth — no SharedPreferences write needed
+                // Prune old data if cache is growing large
+                if (entities.isNotEmpty() && dao.count() > 1000) {
+                    dao.pruneOlderThan(now - PRUNE_AGE_MS)
                 }
 
-                val changes = computeChanges(oldCache, response.events)
+                // DAO is the single source of truth — no SharedPreferences write needed
+
+                // Both sides of the comparison come from the same normalisation, so a row that is
+                // a no-op for de-duplication cannot be reported as a change.
+                val changes = TimetableDiff.diff(oldCache.map { it.toApiEvent() }, deduped)
 
                 CacheResult(
                     events = response.events,
@@ -210,90 +221,16 @@ class TimetableRepository(
         group = group
     )
 
+
     /**
-     * Compare old cached events with fresh API events and return a list of
-     * [TimetableChange] describing what was added, removed, or modified.
+     * Observe the cached week for a course.
      *
-     * Matching key: (module_code, start, end) — a single class session.
-     * Empty old cache (first-ever load) returns an empty list (no "changes" to report).
+     * Emits whenever the cached rows for that week change — including changes written by the
+     * background sync worker — so the UI can react to real updates instead of waking up on a
+     * timer to ask whether anything happened.
      */
-    private fun computeChanges(
-        oldEntities: List<CachedEventEntity>,
-        newEvents: List<ApiEvent>
-    ): List<TimetableChange> {
-        if (oldEntities.isEmpty()) return emptyList()
-
-        val oldMap = oldEntities.groupBy { Triple(it.moduleCode, it.start, it.end) }
-        val newMap = newEvents.groupBy { Triple(it.module_code, it.start, it.end) }
-        val changes = mutableListOf<TimetableChange>()
-
-        // Helper: extract day name from ISO start string
-        fun dayOf(start: String): String = try {
-            java.time.LocalDate.parse(start.substring(0, 10))
-                .dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
-        } catch (_: Exception) { "?" }
-
-        // Helper: extract time range from ISO start/end strings
-        fun timeRange(start: String, end: String): String {
-            val s = if (start.length >= 16) start.substring(11, 16) else "??:??"
-            val e = if (end.length >= 16) end.substring(11, 16) else "??:??"
-            return "$s - $e"
-        }
-
-        // Removed: in old but not in new
-        for ((key, oldList) in oldMap) {
-            if (key !in newMap) {
-                val o = oldList.first()
-                changes.add(TimetableChange(
-                    type = ChangeType.REMOVED,
-                    day = dayOf(o.start),
-                    timeRange = timeRange(o.start, o.end),
-                    moduleCode = o.moduleCode,
-                    title = o.title.ifBlank { "Untitled" },
-                    description = "Class removed"
-                ))
-            }
-        }
-
-        // Added: in new but not in old
-        for ((key, newList) in newMap) {
-            if (key !in oldMap) {
-                val n = newList.first()
-                changes.add(TimetableChange(
-                    type = ChangeType.ADDED,
-                    day = dayOf(n.start),
-                    timeRange = timeRange(n.start, n.end),
-                    moduleCode = n.module_code,
-                    title = n.title.ifBlank { "Untitled" },
-                    description = "New class"
-                ))
-            }
-        }
-
-        // Modified: same key, different details
-        for ((key, newList) in newMap) {
-            val oldList = oldMap[key] ?: continue
-            val o = oldList.first()
-            val n = newList.first()
-            val diffs = mutableListOf<String>()
-            if (o.room != n.room) diffs.add("Room: ${o.room} → ${n.room}")
-            if (o.lecturer != n.lecturer) diffs.add("Lecturer: ${o.lecturer} → ${n.lecturer}")
-            if (o.group != n.group) diffs.add("Group: ${o.group} → ${n.group}")
-            if (o.type != n.type) diffs.add("Type: ${o.type} → ${n.type}")
-            if (diffs.isNotEmpty()) {
-                changes.add(TimetableChange(
-                    type = ChangeType.MODIFIED,
-                    day = dayOf(n.start),
-                    timeRange = timeRange(n.start, n.end),
-                    moduleCode = n.module_code,
-                    title = n.title.ifBlank { "Untitled" },
-                    description = diffs.joinToString("; ")
-                ))
-            }
-        }
-
-        return changes
-    }
+    fun observeCachedWeek(courseIdentity: String, weekStart: String): Flow<List<ApiEvent>> =
+        dao.observeEvents(courseIdentity, weekStart).map { entities -> entities.map { it.toApiEvent() } }
 
     /** Delete all cached timetable data (e.g. on app reset).
      *  Saved/bookmarked courses and search history are NOT affected. */

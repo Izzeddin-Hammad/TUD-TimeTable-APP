@@ -10,3 +10,6 @@
 .cxx
 /local.properties
 .deepseek/
+
+# Local JVM test-harness output (tools/jvm-test-harness.sh)
+.harness-out/

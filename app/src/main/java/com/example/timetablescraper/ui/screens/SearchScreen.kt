@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.R
 import com.example.timetablescraper.TimetableApplication
+import com.example.timetablescraper.api.GroupMatcher
 import com.example.timetablescraper.api.SearchResult
 import com.example.timetablescraper.api.TimetableApiService
 import com.example.timetablescraper.api.cache.SearchHistoryEntity
@@ -286,12 +287,9 @@ fun SearchScreen(
                                                                 mondayDate = monday
                                                             )
                                                         }
-                                                        fetchedGroups = response.events
-                                                            .flatMap { e ->
-                                                                e.group.split("+").map { it.trim() }.filter { it.isNotBlank() }
-                                                            }
-                                                            .distinct()
-                                                            .sorted()
+                                                        fetchedGroups = GroupMatcher.availableGroups(
+                                                            response.events.map { it.group }
+                                                        )
                                                     } catch (_: Exception) {
                                                         fetchedGroups = emptyList()
                                                     } finally {

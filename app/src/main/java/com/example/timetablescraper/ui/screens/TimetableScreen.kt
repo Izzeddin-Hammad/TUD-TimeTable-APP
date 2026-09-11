@@ -44,6 +44,7 @@ import com.example.timetablescraper.worker.SyncNotificationManager
 import com.example.timetablescraper.api.ApiEvent
 import com.example.timetablescraper.api.CacheSource
 import com.example.timetablescraper.api.ChangeType
+import com.example.timetablescraper.api.GroupMatcher
 import com.example.timetablescraper.api.SearchResult
 import com.example.timetablescraper.api.TimetableChange
 import com.example.timetablescraper.api.TimetableApiService
@@ -52,6 +53,7 @@ import com.example.timetablescraper.api.TimetableUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -179,17 +181,13 @@ fun TimetableScreen(
     val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri")
     val coroutineScope = rememberCoroutineScope()
 
-    // Apply group filter — splits group string to match individual groups exactly.
-    // Wrapped in derivedStateOf so the filter only recomputes when events or
-    // selectedGroup actually change, not on every recomposition.
+    // Apply the group filter through GroupMatcher so the matching rules live in exactly one
+    // tested place. This replaced an inline `event.group.split("+").any { it.trim() == selectedGroup }`,
+    // which hid every all-cohort (blank-group) lecture as soon as a subgroup was selected, and
+    // matched case-sensitively. Wrapped in derivedStateOf so the filter only recomputes when
+    // events or selectedGroup actually change, not on every recomposition.
     val displayEvents by remember(events, selectedGroup) {
-        derivedStateOf {
-            if (selectedGroup != null) {
-                events.filter { event ->
-                    event.group.split("+").any { g -> g.trim() == selectedGroup }
-                }
-            } else events
-        }
+        derivedStateOf { events.filter { GroupMatcher.matches(it.group, selectedGroup) } }
     }
 
     // Check if this course is saved/bookmarked
@@ -391,36 +389,26 @@ fun TimetableScreen(
         }
     }
 
-    // ── Background sync poll: check for WorkManager-updated cache ─────
-    // Every 2 minutes, load the current week from the repository with
-    // forceRefresh=false so the network is never hit from this poll.
-    // If the SyncWorker updated the cache, the UI refreshes automatically.
+    // ── Background sync: react to cache writes instead of polling ─────
+    // The WorkManager sync writes a refreshed week into Room. Rather than waking up every two
+    // minutes to ask "did anything change?" — 30 wasted wake-ups an hour, each running a
+    // repository call, a full Room read and a rebuild of the event list — observe the cache.
+    // Room emits only when those rows actually change, so the screen updates the instant the
+    // background sync lands, and does nothing at all in between.
     LaunchedEffect(currentMonday, selectedCourse.identity) {
-        while (isActive) {
-            delay(120_000) // 2-minute poll interval
-            try {
-                val result = repository.loadTimetable(
-                    courseIdentity = selectedCourse.identity,
-                    timetableTypeId = selectedCourse.timetable_type_id,
-                    mondayDate = currentMonday,
-                    forceRefresh = false,  // zero network — returns cache within TTL
-                    context = context,
-                    courseName = selectedCourse.name
-                )
-                // Only update if we got fresh data (don't overwrite with stale cache)
-                if (result.source != CacheSource.CACHE_STALE) {
-                    val mondayStr = currentMonday.format(DATE_FORMATTER)
-                    val updatedEvents = result.events
-                        .map { TimetableUtils.toUiEvent(it, mondayStr) }
-                    if (updatedEvents != events) {
-                        events = updatedEvents
-                        cacheSource = result.source
-                    }
+        val weekStart = currentMonday.format(DATE_FORMATTER)
+        repository.observeCachedWeek(selectedCourse.identity, weekStart)
+            .collect { cached ->
+                // Nothing cached yet: the loader owns first paint, so don't flash an empty week.
+                if (cached.isEmpty()) return@collect
+                val updatedEvents = cached.map { TimetableUtils.toUiEvent(it, weekStart) }
+                if (updatedEvents != events) {
+                    events = updatedEvents
+                    // The cache only changes when a sync (or a load) has completed successfully,
+                    // so what we are now showing is the freshly written week.
+                    cacheSource = CacheSource.CACHE_FRESH
                 }
-            } catch (_: Exception) {
-                // Silently ignore — background poll should never disturb the user
             }
-        }
     }
 
             // When events change (new week loaded), keep the current day selected
@@ -768,10 +756,7 @@ fun TimetableScreen(
 
             // ── Group filter (only show if there are multiple groups) ──────
             val availableGroups = remember(events) {
-                events.flatMap { it.group.split("+").map { g -> g.trim() } }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .sorted()
+                GroupMatcher.availableGroups(events.map { it.group })
             }
             if (availableGroups.size > 1) {
                 ExposedDropdownMenuBox(

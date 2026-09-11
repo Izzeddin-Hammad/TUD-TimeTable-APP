@@ -4,7 +4,6 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
-import retrofit2.HttpException // If you are using Retrofit, this is the standard HTTP Exception
 
 /**
  * Typed result wrapper that classifies every network outcome into one of
@@ -20,6 +19,10 @@ import retrofit2.HttpException // If you are using Retrofit, this is the standar
  * | HTTP 5xx (Server Error)      | [HttpError] with 5xx code   |
  * | Timeout / UnknownHost / SSL  | [TransportError]            |
  * | Any other failure            | [TransportError]            |
+ *
+ * HTTP-level failures are surfaced by the app's own [TimetableApiException]; there is no
+ * Retrofit dependency (the Retrofit branch that used to live here was the only reason the
+ * dependency was declared, and nothing constructed it).
  */
 sealed class NetworkResult<out T> {
 
@@ -90,12 +93,8 @@ sealed class NetworkResult<out T> {
                 is TimetableApiException ->
                     HttpError(code = e.httpCode, body = e.body, message = e.message ?: "API Error ${e.httpCode}")
 
-                // 2. Check for standard Retrofit HTTP exceptions (if you ever migrate to Retrofit)
-                is HttpException ->
-                    HttpError(code = e.code(), message = e.message())
-
                 else -> {
-                    // 3. Fallback for generic exceptions.
+                    // 2. Fallback for generic exceptions.
                     // Instead of brittle Regex, look for specific string patterns
                     // only if it's an IOException or generic Exception.
                     val msg = e.message ?: ""

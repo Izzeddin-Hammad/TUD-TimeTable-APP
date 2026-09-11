@@ -31,7 +31,12 @@ internal object TimetableParser {
         var moduleCode = ""
         var title       = name
         var type        = ""
-        var group       = ""
+        // The cohort can come from two independent places: the event name
+        // ("MODULE/Title/Lec/Sem 1/A") and the ExtraProperty "Class Group". They routinely
+        // disagree, and Class Group is the authoritative one — it is the only source that
+        // carries a compound cohort such as "G1 + G2". Both are kept here and resolved below.
+        var nameGroup   = ""
+        var classGroup  = ""
 
         if (parts.size >= 2) {
             val codeMatch = CODE_REGEX.find(parts[0])
@@ -44,7 +49,7 @@ internal object TimetableParser {
                 type = parts[semIndex - 1].trim()
             }
 
-            group = if (semIndex in 1 until parts.size - 1) {
+            nameGroup = if (semIndex in 1 until parts.size - 1) {
                 parts[semIndex + 1].trim()
             } else ""
         }
@@ -60,10 +65,10 @@ internal object TimetableParser {
                         val mc = CODE_REGEX.find(prop.optString("Value", ""))
                         if (mc != null) moduleCode = mc.value.trim()
                     }
-                    "Class Group" -> if (group.isEmpty()) {
-                        val raw = prop.optString("Value", "").trim()
-                        group = raw.split("+").map { it.trim() }
-                            .filter { it.isNotEmpty() }.sorted().joinToString(" + ")
+                    "Class Group" -> if (classGroup.isEmpty()) {
+                        // Authoritative: recorded even when the name already yielded a
+                        // subgroup, because the name carries only a coarse segment.
+                        classGroup = prop.optString("Value", "").trim()
                     }
                 }
             }
@@ -71,6 +76,11 @@ internal object TimetableParser {
 
         var room = ev.optString("Location", "")
             .replace(BRACKET_REGEX, "").trim()
+
+        // Resolve the cohort: Class Group wins, the name-derived segment is the fallback, and
+        // both are normalised through GroupMatcher so compound cohorts ("G1+G2", "G2, G1")
+        // parse identically here, in the UI filter, and in the diff engine.
+        val group = GroupMatcher.format(classGroup.ifBlank { nameGroup })
 
         return ApiEvent(
             module_code = moduleCode.trim(),

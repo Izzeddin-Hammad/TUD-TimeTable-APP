@@ -1,115 +1,189 @@
 package com.example.timetablescraper.api
 
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for group filtering logic (pure JVM).
- * Tests the group extraction and filtering that happens in the UI layer.
+ * Group behaviour, tested against **production code**.
+ *
+ * This file replaces a version of the same test that re-implemented the group rules inline
+ * (`events.flatMap { it.group.split("+") ... }`) instead of calling the code under test. That
+ * version passed no matter what production did — including while the UI was hiding every
+ * all-cohort lecture as soon as a student picked a subgroup. Every assertion below now calls the
+ * real implementation, so it fails when the behaviour regresses.
  */
 class GroupFilteringTest {
 
-    // ── Group extraction from event list ───────────────────────────────
+    private fun event(
+        module: String = "TU859",
+        title: String = "Maths",
+        type: String = "Lec",
+        lecturer: String = "Staff",
+        room: String = "Room",
+        start: String = "2025-10-06T09:00:00Z",
+        end: String = "2025-10-06T10:00:00Z",
+        group: String = "",
+    ) = ApiEvent(
+        module_code = module, title = title, type = type, lecturer = lecturer, room = room,
+        start = start, end = end, group = group,
+    )
+
+    // ── extracting the groups offered for a course ─────────────────────────────
 
     @Test
     fun `extracts distinct sorted groups from events`() {
         val events = listOf(
-            ApiEvent("TU859", "Maths", "Lec", "Staff", "Room", "", "", "A"),
-            ApiEvent("TU859", "Physics", "Lab", "Staff", "Room", "", "", "B"),
-            ApiEvent("TU859", "CS", "Lec", "Staff", "Room", "", "", "A"),
-            ApiEvent("TU859", "DB", "Tut", "Staff", "Room", "", "", "G1"),
+            event(title = "Maths", group = "A"),
+            event(title = "Physics", type = "Lab", group = "B"),
+            event(title = "CS", group = "A"),
+            event(title = "DB", type = "Tut", group = "G1"),
         )
-        val groups = events.map { it.group }.distinct().sorted()
+
+        // Production tokens, not a re-implementation of the split rules.
+        val groups = events.flatMap { GroupMatcher.parse(it.group) }.distinct().sorted()
+
         assertEquals(listOf("A", "B", "G1"), groups)
     }
 
     @Test
     fun `extracts groups from compound group strings`() {
         val events = listOf(
-            ApiEvent("TU859", "Maths", "Lec", "Staff", "Room", "", "", "A + B"),
-            ApiEvent("TU859", "Physics", "Lab", "Staff", "Room", "", "", "G2 + G1"),
+            event(group = "A + B"),
+            event(group = "G2,G1"),   // a different upstream dialect
         )
-        // Split each group on "+" and collect
-        val allGroups = events.flatMap { event ->
-            event.group.split("+").map { it.trim() }.filter { it.isNotBlank() }
-        }.distinct().sorted()
-        assertEquals(listOf("A", "B", "G1", "G2"), allGroups)
+
+        val groups = events.flatMap { GroupMatcher.parse(it.group) }.distinct().sorted()
+
+        assertEquals(listOf("A", "B", "G1", "G2"), groups)
     }
 
     @Test
-    fun `handles empty group strings`() {
+    fun `plenary sessions do not contribute a group of their own`() {
+        val events = listOf(event(group = ""), event(group = "A"))
+
+        val groups = events.flatMap { GroupMatcher.parse(it.group) }.distinct().sorted()
+
+        assertEquals(listOf("A"), groups)
+        assertTrue(GroupMatcher.appliesToAll(""))
+    }
+
+    // ── filtering what the student sees ────────────────────────────────────────
+
+    @Test
+    fun `no selection shows every session`() {
+        val events = listOf(event(group = "A"), event(group = "B"), event(group = ""))
+
+        val displayed = events.filter { GroupMatcher.matches(it.group, null) }
+
+        assertEquals(3, displayed.size)
+    }
+
+    @Test
+    fun `selecting a group keeps that group and the plenary sessions`() {
+        val events = listOf(event(group = "A"), event(group = "B"), event(group = ""))
+
+        val displayed = events.filter { GroupMatcher.matches(it.group, "A") }
+
+        // The blank-group lecture is the whole cohort's class and must remain visible.
+        assertEquals(listOf("A", ""), displayed.map { it.group })
+    }
+
+    @Test
+    fun `selecting a group hides other groups`() {
+        val events = listOf(event(group = "A"), event(group = "B"))
+
+        val displayed = events.filter { GroupMatcher.matches(it.group, "B") }
+
+        assertEquals(listOf("B"), displayed.map { it.group })
+    }
+
+    @Test
+    fun `a shared session appears under each of its groups`() {
+        val shared = event(group = "G1 + G2")
+
+        assertTrue(GroupMatcher.matches(shared.group, "G1"))
+        assertTrue(GroupMatcher.matches(shared.group, "G2"))
+    }
+
+    @Test
+    fun `selection is case and whitespace insensitive`() {
+        val events = listOf(event(group = "g1"))
+
+        val displayed = events.filter { GroupMatcher.matches(it.group, " G1 ") }
+
+        assertEquals(1, displayed.size)
+    }
+
+    // ── de-duplication must not destroy groups ─────────────────────────────────
+
+    @Test
+    fun `parallel lab groups in different rooms are both kept`() {
+        // Regression: the old dedup key (start|title|lecturer) dropped one of these, so a
+        // whole subgroup silently lost its lab.
         val events = listOf(
-            ApiEvent("TU859", "Lec", "Lec", "Staff", "Room", "", "", ""),
-            ApiEvent("TU859", "Lab", "Lab", "Staff", "Room", "", "", ""),
+            event(title = "Physics Lab", type = "Lab", room = "R1", group = "A", start = "2025-10-07T14:00:00Z", end = "2025-10-07T16:00:00Z"),
+            event(title = "Physics Lab", type = "Lab", room = "R2", group = "B", start = "2025-10-07T14:00:00Z", end = "2025-10-07T16:00:00Z"),
         )
-        val groups = events.flatMap { event ->
-            event.group.split("+").map { it.trim() }.filter { it.isNotBlank() }
-        }.distinct().sorted()
-        assertTrue(groups.isEmpty())
-    }
 
-    // ── Event filtering by group ───────────────────────────────────────
+        val deduped = TimetableUtils.deduplicateEvents(events)
 
-    @Test
-    fun `filters events by exact group match`() {
-        val events = listOf(
-            ApiEvent("TU859", "Maths", "Lec", "Staff", "Room", "", "", "A"),
-            ApiEvent("TU859", "Physics", "Lab", "Staff", "Room", "", "", "B"),
-            ApiEvent("TU859", "CS", "Lec", "Staff", "Room", "", "", "A"),
-        )
-        val filtered = events.filter { event ->
-            event.group.split("+").any { g -> g.trim() == "A" }
-        }
-        assertEquals(2, filtered.size)
+        assertEquals(2, deduped.size)
+        assertEquals(setOf("A", "B"), deduped.map { it.group }.toSet())
     }
 
     @Test
-    fun `filter with null group returns all events`() {
-        val events = listOf(
-            ApiEvent("TU859", "Maths", "Lec", "Staff", "Room", "", "", "A"),
-            ApiEvent("TU859", "Physics", "Lab", "Staff", "Room", "", "", "B"),
-        )
-        // When selectedGroup is null, show all
-        val selectedGroup: String? = null
-        val displayEvents = if (selectedGroup != null) {
-            events.filter { event ->
-                event.group.split("+").any { g -> g.trim() == selectedGroup }
-            }
-        } else events
-        assertEquals(2, displayEvents.size)
+    fun `a duplicate copy that is missing the group cannot erase the real group`() {
+        // Regression: the same session can arrive twice, once carrying the cohort and once
+        // without it (the parser resolves the cohort from two independent upstream fields, and
+        // either can be absent). De-duplication must fold the incomplete copy into the complete
+        // one — never keep the class with the group erased, which made it unreachable through the
+        // group filter.
+        val withGroup = event(group = "A", room = "A201")
+        val withoutGroup = event(group = "", room = "A201")
+
+        val deduped = TimetableUtils.deduplicateEvents(listOf(withoutGroup, withGroup))
+
+        assertEquals(1, deduped.size)
+        assertEquals("A", deduped.single().group)
     }
 
     @Test
-    fun `filter matches compound group events`() {
-        val events = listOf(
-            ApiEvent("TU859", "Joint", "Lec", "Staff", "Room", "", "", "G1 + G2"),
-        )
-        val filtered = events.filter { event ->
-            event.group.split("+").any { g -> g.trim() == "G1" }
-        }
-        assertEquals(1, filtered.size)
-    }
+    fun `a duplicate copy that is missing the room cannot erase the real room`() {
+        val withRoom = event(group = "A", room = "A201")
+        val withoutRoom = event(group = "A", room = "")
 
-    // ── Group normalisation ────────────────────────────────────────────
+        val deduped = TimetableUtils.deduplicateEvents(listOf(withoutRoom, withRoom))
 
-    @Test
-    fun `normalise sorts compound groups alphabetically`() {
-        val raw = "G2 + G1"
-        val normalised = raw.split("+").map { it.trim() }.filter { it.isNotEmpty() }.sorted().joinToString(" + ")
-        assertEquals("G1 + G2", normalised)
+        assertEquals(1, deduped.size)
+        assertEquals("A201", deduped.single().room)
     }
 
     @Test
-    fun `normalise handles single group`() {
-        val raw = "A"
-        val normalised = raw.split("+").map { it.trim() }.filter { it.isNotEmpty() }.sorted().joinToString(" + ")
-        assertEquals("A", normalised)
+    fun `two different groups in the same room are both kept`() {
+        // Conflicting cohorts are genuinely different classes, so neither may be dropped.
+        val groupA = event(group = "A", room = "A201")
+        val groupB = event(group = "B", room = "A201")
+
+        assertEquals(2, TimetableUtils.deduplicateEvents(listOf(groupA, groupB)).size)
     }
 
     @Test
-    fun `normalise handles three groups`() {
-        val raw = "C + A + B"
-        val normalised = raw.split("+").map { it.trim() }.filter { it.isNotEmpty() }.sorted().joinToString(" + ")
-        assertEquals("A + B + C", normalised)
+    fun `exact duplicates collapse to one row`() {
+        val events = listOf(event(group = "A"), event(group = "A"))
+
+        assertEquals(1, TimetableUtils.deduplicateEvents(events).size)
+    }
+
+    @Test
+    fun `group extraction and filtering agree on the same token model`() {
+        // Whatever the UI offers as a filter option must be matchable.
+        val events = listOf(event(group = "Y3/C/G1"), event(group = ""))
+
+        val offered = events.flatMap { GroupMatcher.parse(it.group) }.distinct().sorted()
+
+        assertTrue(offered.contains("G1"))
+        assertTrue(offered.contains("C"))
+        assertTrue(events.any { GroupMatcher.matches(it.group, "G1") })
     }
 }

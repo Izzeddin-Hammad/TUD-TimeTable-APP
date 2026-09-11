@@ -92,14 +92,6 @@ class CrashHandler private constructor(
             Log.i(TAG, "Global uncaught exception handler registered")
         }
 
-        /** True if a crash was recorded in a previous session. */
-        @JvmStatic
-        fun hasCrashOccurred(context: Context): Boolean {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            if (prefs.getBoolean(KEY_CRASH_OCCURRED, false)) return true
-            return File(context.filesDir, CRASH_MARKER_FILE).exists()
-        }
-
         /** Read the persisted crash info, or null if no crash is recorded. */
         @JvmStatic
         fun getCrashInfo(context: Context): CrashInfo? {
@@ -112,14 +104,48 @@ class CrashHandler private constructor(
             )
         }
 
-        /** Clear the crash flags after successful recovery or restart. */
+        /**
+         * Whether a previous session ended in a crash.
+         *
+         * The marker file is written on disk as a second, prefs-independent signal. An *empty*
+         * marker means "cleared, but the filesystem refused to delete it" — treating that as a
+         * crash would hold the user on the fatal screen forever, so it is not counted.
+         */
+        @JvmStatic
+        fun hasCrashOccurred(context: Context): Boolean {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_CRASH_OCCURRED, false)) return true
+            val marker = File(context.filesDir, CRASH_MARKER_FILE)
+            return marker.exists() && marker.length() > 0L
+        }
+
+        /**
+         * Clear the crash flags after successful recovery or restart.
+         *
+         * Uses `commit()` rather than `apply()`: the caller restarts the process immediately, and
+         * an asynchronous write can be lost when the process dies — which showed up as the fatal
+         * screen reappearing after the user pressed "Try Again". Marker deletion is verified
+         * instead of assumed, so an undeletable marker cannot resurrect the screen either.
+         */
         @JvmStatic
         fun clearCrashFlag(context: Context) {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .clear()
-                .apply()
-            try { File(context.filesDir, CRASH_MARKER_FILE).delete() } catch (_: Exception) { }
+            runCatching {
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .clear()
+                    .commit()
+            }.onFailure { Log.w(TAG, "Could not clear crash preferences", it) }
+
+            val marker = File(context.filesDir, CRASH_MARKER_FILE)
+            if (!marker.exists()) return
+
+            val deleted = runCatching { marker.delete() }.getOrDefault(false)
+            if (!deleted) {
+                // Un-deletable marker: truncate it so `hasCrashOccurred` stops reporting a crash.
+                runCatching { marker.writeText("") }
+                    .onFailure { Log.w(TAG, "Crash marker could not be truncated", it) }
+                Log.w(TAG, "Crash marker could not be deleted; emptied instead")
+            }
         }
     }
 

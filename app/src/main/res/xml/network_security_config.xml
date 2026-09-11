@@ -1,5 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cleartext HTTP is denied outright.
+
+    Every endpoint this app talks to is HTTPS: the TU Dublin Scientia Publish API
+    (scientia-eu-v4-api-d4-01.azurewebsites.net) and api.github.com for the update check. The
+    previous configuration permitted cleartext globally "for dev", which was harmless only while
+    the app held no credentials — the moment an account or token exists, a permitted cleartext
+    window is a downgrade/interception path for it, and Google Play flags it.
+
+    If a local HTTP server is ever needed for development, add a domain-scoped
+    <domain-config cleartextTrafficPermitted="true"><domain>…</domain></domain-config> for a
+    debug-only manifest source set rather than relaxing the base config.
+-->
 <network-security-config>
-    <!-- Dev app: allow cleartext HTTP to local servers -->
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>

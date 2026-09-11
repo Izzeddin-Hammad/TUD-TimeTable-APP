@@ -6,6 +6,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
+import java.util.Locale
 
 /**
  * Utilities for converting API events to UI models and date calculations.
@@ -95,26 +96,37 @@ object TimetableUtils {
 
     fun formatDayDate(monday: LocalDate, dayOffset: Int): String {
         val date = monday.plusDays(dayOffset.toLong())
-        return date.format(DateTimeFormatter.ofPattern("MMM d"))
+        // Locale-pinned: the old formatter used the device default, so a German device rendered
+        // "Okt 6" while the rest of the app (and the tests) assumed English month names.
+        return date.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH))
     }
 
     fun formatWeekRange(monday: LocalDate): String {
         val sunday = monday.plusDays(6)
-        val startStr = monday.format(DateTimeFormatter.ofPattern("MMM d"))
-        val endStr = sunday.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))
+        val startStr = monday.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH))
+        val endStr = sunday.format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH))
         return "$startStr – $endStr"
     }
 
+    /**
+     * All academic weeks (Mondays) that the week picker and the full-year fetch should cover.
+     *
+     * The teaching year runs Sep 1 → Apr 30, but students are on campus outside that window
+     * (autumn resits, May/August repeat assessments, and the first weeks of a new academic year
+     * before the September boundary). The current week is therefore always included even when it
+     * falls outside the nominal year — previously a student opening the app in May or late August
+     * had no way to reach the week they were actually in.
+     */
     fun generateAcademicWeeks(today: LocalDate = LocalDate.now(DUBLIN_ZONE)): List<LocalDate> {
-        val academicYearStart = if (today.monthValue >= 9) {
-            LocalDate.of(today.year, 9, 1)
+        val academicYearStart = if (today.monthValue >= SEPTEMBER) {
+            LocalDate.of(today.year, SEPTEMBER, 1)
         } else {
-            LocalDate.of(today.year - 1, 9, 1)
+            LocalDate.of(today.year - 1, SEPTEMBER, 1)
         }
-        val academicYearEnd = if (today.monthValue >= 9) {
-            LocalDate.of(today.year + 1, 4, 30)
+        val academicYearEnd = if (today.monthValue >= SEPTEMBER) {
+            LocalDate.of(today.year + 1, APRIL, 30)
         } else {
-            LocalDate.of(today.year, 4, 30)
+            LocalDate.of(today.year, APRIL, 30)
         }
 
         val weeks = mutableListOf<LocalDate>()
@@ -123,26 +135,85 @@ object TimetableUtils {
             weeks.add(monday)
             monday = monday.plusWeeks(1)
         }
+
+        // Guarantee the student can always reach the week they are in.
+        val currentMonday = getCurrentMonday(today)
+        if (currentMonday !in weeks) {
+            weeks.add(currentMonday)
+            weeks.sort()
+        }
         return weeks
     }
 
+    private const val SEPTEMBER = 9
+    private const val APRIL = 4
+
     /**
-     * Deduplicate events.  O(n log n) single sort, no redundant passes.
+     * Deduplicate upstream rows that describe the same meeting.
      *
-     * Key: normalised start | title | lecturer
-     * Prefers the richest copy (group + lecturer metadata) per distinct entity.
+     * Two-stage, because the upstream expresses the same class in several ways at once:
+     *
+     *  1. Rows are bucketed by [EventKey.meetingKey] (module, title, type, slot, lecturer).
+     *  2. Within a bucket, rows are merged only when they do **not** actively disagree about the
+     *     room or the cohort. A row that merely *lacks* the room/group is folded into the row
+     *     that has it (preferring the specific value), while two rows that both state different
+     *     rooms or different groups are genuinely different classes and both survive.
+     *
+     * That resolves the conflict in the previous single-key implementation:
+     *  - keying on `start|title|lecturer` silently deleted one of two parallel lab groups, and
+     *    the "richest copy" score (`group.length + lecturer.length`) could then keep the copy with
+     *    no group at all, making the class unreachable through the group filter;
+     *  - keying on every field (including room and group) kept a *duplicate* row whenever one copy
+     *    was missing metadata, so the student saw the same class twice.
      */
     fun deduplicateEvents(events: List<ApiEvent>): List<ApiEvent> {
         if (events.size <= 1) return events
 
-        // Single sort: richest first → first occurrence wins in distinctBy
+        val richestFirst = compareByDescending<ApiEvent> { if (GroupMatcher.parse(it.group).isEmpty()) 0 else 1 }
+            .thenByDescending { if (it.room.isBlank()) 0 else 1 }
+            .thenByDescending { if (it.lecturer.isBlank()) 0 else 1 }
+            .thenBy { it.start }
+
         return events
-            .sortedWith(compareByDescending<ApiEvent> { it.group.length + it.lecturer.length }
-                .thenBy { it.start })
-            .distinctBy { e ->
-                val s = e.start.trim().removeSuffix("Z").substringBefore(".000")
-                "${s}|${e.title.trim()}|${e.lecturer.trim()}"
-            }
+            .sortedWith(richestFirst)
+            .groupBy { EventKey.meetingKey(it) }
+            .values
+            .flatMap { rows -> mergeCompatibleCopies(rows) }
+            .sortedBy { it.start }
+    }
+
+    /** A cluster of rows believed to be one meeting, tracking the most specific room/cohort seen. */
+    private class MeetingCopy(seed: ApiEvent) {
+        private val seed = seed
+        private var room: String = seed.room
+        private var group: String = seed.group
+
+        /** Rows conflict only when both state a value and the values differ. */
+        fun compatibleWith(other: ApiEvent): Boolean {
+            if (room.isNotBlank() && other.room.isNotBlank() && room.trim() != other.room.trim()) return false
+            val mine = GroupMatcher.parse(group)
+            val theirs = GroupMatcher.parse(other.group)
+            if (mine.isNotEmpty() && theirs.isNotEmpty() && mine != theirs) return false
+            return true
+        }
+
+        fun absorb(other: ApiEvent) {
+            if (room.isBlank()) room = other.room
+            if (GroupMatcher.parse(group).isEmpty()) group = other.group
+        }
+
+        fun toEvent(): ApiEvent =
+            if (room == seed.room && group == seed.group) seed
+            else seed.copy(room = room, group = group)
+    }
+
+    private fun mergeCompatibleCopies(rows: List<ApiEvent>): List<ApiEvent> {
+        val copies = mutableListOf<MeetingCopy>()
+        for (row in rows) {                      // richest first, so the seed carries the most data
+            val target = copies.firstOrNull { it.compatibleWith(row) }
+            if (target != null) target.absorb(row) else copies += MeetingCopy(row)
+        }
+        return copies.map { it.toEvent() }
     }
 
     /**
