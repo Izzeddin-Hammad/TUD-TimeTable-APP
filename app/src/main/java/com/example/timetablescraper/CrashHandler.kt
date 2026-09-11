@@ -2,6 +2,10 @@ package com.example.timetablescraper
 
 import android.content.Context
 import android.util.Log
+import com.example.timetablescraper.util.CrashFlags
+import com.example.timetablescraper.util.CrashMarker
+import com.example.timetablescraper.util.ParsedCrash
+import com.example.timetablescraper.util.SafePrefs
 import java.io.File
 
 /**
@@ -12,20 +16,31 @@ import java.io.File
  *
  * ```
  * ┌─ Thread.uncaughtException ─────────────────────────────────────┐
- * │  1. Write crash info → SharedPreferences + marker file         │
+ * │  1. Write crash info → marker file + SharedPreferences         │
  * │  2. Chain to previous handler (OS kills the process)           │
  * └───────────────────────────────────────────────────────────────┘
  *                          ↓  (process restarts)
  * ┌─ MainActivity.onCreate ────────────────────────────────────────┐
  * │  CrashHandler.hasCrashOccurred() == true                       │
  * │    → FatalErrorScreen("Something went wrong")                  │
- * │      → "Clear Cache & Restart" button wipes data & restarts    │
+ * │      → "Clear Cache & Restart" clears the timetable cache and  │
+ * │        the cache-derived preferences, then restarts            │
  * └───────────────────────────────────────────────────────────────┘
  * ```
  *
  * This is the outermost safety net.  Inner layers (coroutine exception
  * handlers, try-catch in LaunchedEffect, runCatching at scope roots)
  * prevent most crashes from reaching this handler at all.
+ *
+ * ## Durability rules (each one learned from a real defect)
+ *
+ * 1. The **marker file** is written first and synchronously. It is the copy that survives.
+ * 2. The preferences copy uses `commit()`, never `apply()`: the process is about to die, so an
+ *    asynchronous write can be lost — which produced a recovery screen with nothing on it.
+ * 3. [getCrashInfo] falls back to the marker when the preferences copy is missing, so the screen
+ *    can always say *what* went wrong instead of showing an empty panel.
+ * 4. Clearing records a timestamp, so a marker that cannot be deleted is recognised as stale
+ *    rather than trapping the user on the recovery screen on every launch.
  */
 class CrashHandler private constructor(
     private val context: Context
@@ -56,23 +71,27 @@ class CrashHandler private constructor(
         val message = throwable.message ?: "Unknown error"
         val stacktrace = throwable.stackTraceToString()
 
-        // Primary: SharedPreferences
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putBoolean(KEY_CRASH_OCCURRED, true)
-            .putString(KEY_CRASH_MESSAGE, message)
-            .putString(KEY_CRASH_STACKTRACE, stacktrace)
-            .putLong(KEY_CRASH_TIMESTAMP, timestamp)
-            .apply()
-
-        // Secondary: marker file (survives SharedPreferences corruption)
+        // 1. Marker file — synchronous, and the copy that survives an abrupt process death.
         try {
-            File(context.filesDir, CRASH_MARKER_FILE).bufferedWriter().use { writer ->
-                writer.write("Crash at: $timestamp\n")
-                writer.write("Message: $message\n\n")
-                writer.write(stacktrace)
-            }
-        } catch (_: Exception) { /* secondary persistence is best-effort */ }
+            File(context.filesDir, CRASH_MARKER_FILE)
+                .writeText(CrashMarker.format(timestamp, message, stacktrace))
+        } catch (_: Exception) {
+            // Best effort; the preferences copy below is the other half of the redundancy.
+        }
+
+        // 2. SharedPreferences — committed synchronously, because the process is about to be
+        //    killed and an asynchronous write would simply never land.
+        try {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_CRASH_OCCURRED, true)
+                .putString(KEY_CRASH_MESSAGE, message)
+                .putString(KEY_CRASH_STACKTRACE, stacktrace)
+                .putLong(KEY_CRASH_TIMESTAMP, timestamp)
+                .commit()
+        } catch (_: Exception) {
+            // Nothing further we can do from inside a crash handler.
+        }
     }
 
     companion object {
@@ -82,6 +101,7 @@ class CrashHandler private constructor(
         private const val KEY_CRASH_MESSAGE = "crash_message"
         private const val KEY_CRASH_STACKTRACE = "crash_stacktrace"
         private const val KEY_CRASH_TIMESTAMP = "crash_timestamp"
+        private const val KEY_CRASH_CLEARED_AT = "crash_cleared_at"
         private const val CRASH_MARKER_FILE = ".crash_marker"
 
         /** Register the global handler. Call once from [TimetableApplication.onCreate]. */
@@ -92,61 +112,96 @@ class CrashHandler private constructor(
             Log.i(TAG, "Global uncaught exception handler registered")
         }
 
-        /** Read the persisted crash info, or null if no crash is recorded. */
+        /**
+         * Read the persisted crash info, or null if no crash is recorded.
+         *
+         * Reads the preferences copy first, then falls back to the marker file. The fallback is
+         * what stops the recovery screen from being blank: prefs written by an older build used
+         * `apply()` and can be missing entirely even though the crash happened.
+         */
         @JvmStatic
         fun getCrashInfo(context: Context): CrashInfo? {
             if (!hasCrashOccurred(context)) return null
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).all
+            val message = SafePrefs.string(prefs, KEY_CRASH_MESSAGE)
+            val stacktrace = SafePrefs.string(prefs, KEY_CRASH_STACKTRACE)
+            val timestamp = SafePrefs.long(prefs, KEY_CRASH_TIMESTAMP, 0L)
+
+            if (message.isNullOrBlank() && stacktrace.isNullOrBlank()) {
+                readMarker(context)?.let { fromMarker ->
+                    return CrashInfo(
+                        message = fromMarker.message,
+                        stacktrace = fromMarker.stacktrace,
+                        timestamp = fromMarker.timestamp.takeIf { it > 0L } ?: timestamp,
+                    )
+                }
+            }
+
             return CrashInfo(
-                message = prefs.getString(KEY_CRASH_MESSAGE, "Unknown error"),
-                stacktrace = prefs.getString(KEY_CRASH_STACKTRACE, null),
-                timestamp = prefs.getLong(KEY_CRASH_TIMESTAMP, 0L)
+                message = message ?: "Unknown error",
+                stacktrace = stacktrace,
+                timestamp = timestamp,
             )
         }
 
         /**
          * Whether a previous session ended in a crash.
          *
-         * The marker file is written on disk as a second, prefs-independent signal. An *empty*
-         * marker means "cleared, but the filesystem refused to delete it" — treating that as a
-         * crash would hold the user on the fatal screen forever, so it is not counted.
+         * Delegates the decision to [CrashFlags.shouldShowRecovery], which also treats a marker
+         * older than the last clear as stale — that is what stops an undeletable marker from
+         * bringing the recovery screen back on every launch.
          */
         @JvmStatic
         fun hasCrashOccurred(context: Context): Boolean {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            if (prefs.getBoolean(KEY_CRASH_OCCURRED, false)) return true
             val marker = File(context.filesDir, CRASH_MARKER_FILE)
-            return marker.exists() && marker.length() > 0L
+            return CrashFlags.shouldShowRecovery(
+                prefsFlag = SafePrefs.boolean(prefs.all, KEY_CRASH_OCCURRED, false),
+                markerExists = marker.exists(),
+                markerLength = runCatching { marker.length() }.getOrDefault(0L),
+                markerLastModified = runCatching { marker.lastModified() }.getOrDefault(0L),
+                clearedAt = SafePrefs.long(prefs.all, KEY_CRASH_CLEARED_AT, 0L),
+            )
         }
 
         /**
          * Clear the crash flags after successful recovery or restart.
          *
-         * Uses `commit()` rather than `apply()`: the caller restarts the process immediately, and
-         * an asynchronous write can be lost when the process dies — which showed up as the fatal
-         * screen reappearing after the user pressed "Try Again". Marker deletion is verified
-         * instead of assumed, so an undeletable marker cannot resurrect the screen either.
+         * Order matters: the preferences are cleared and the clear is *timestamped* before the
+         * marker is touched. If the marker cannot be deleted, the timestamp makes it stale, so
+         * `hasCrashOccurred` stops reporting a crash either way — the user is never stuck.
          */
         @JvmStatic
         fun clearCrashFlag(context: Context) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+            val cleared = runCatching { prefs.edit().clear().commit() }.getOrDefault(false)
+            if (!cleared) Log.w(TAG, "Crash preferences could not be cleared")
+
             runCatching {
-                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit()
-                    .clear()
-                    .commit()
-            }.onFailure { Log.w(TAG, "Could not clear crash preferences", it) }
+                prefs.edit().putLong(KEY_CRASH_CLEARED_AT, System.currentTimeMillis()).commit()
+            }.onFailure { Log.w(TAG, "Could not record the crash-clear timestamp", it) }
 
             val marker = File(context.filesDir, CRASH_MARKER_FILE)
             if (!marker.exists()) return
 
             val deleted = runCatching { marker.delete() }.getOrDefault(false)
             if (!deleted) {
-                // Un-deletable marker: truncate it so `hasCrashOccurred` stops reporting a crash.
+                // Truncate as a secondary signal, and rely on the timestamp above so this cannot
+                // resurrect the recovery screen.
                 runCatching { marker.writeText("") }
                     .onFailure { Log.w(TAG, "Crash marker could not be truncated", it) }
-                Log.w(TAG, "Crash marker could not be deleted; emptied instead")
+                Log.w(TAG, "Crash marker could not be deleted; it is now ignored as stale")
             }
         }
+
+        /** The marker file's parsed contents, or null when it holds no usable record. */
+        private fun readMarker(context: Context): ParsedCrash? = runCatching {
+            val marker = File(context.filesDir, CRASH_MARKER_FILE)
+            if (!marker.exists() || marker.length() <= 0L) return null
+            CrashMarker.parse(marker.readText())
+        }.getOrNull()
     }
 
     data class CrashInfo(

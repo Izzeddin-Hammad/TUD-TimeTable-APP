@@ -155,9 +155,17 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v1.25)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.25-debug.apk)
+[**Download latest APK (v1.26)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.26-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
+
+### What's new in v1.26
+
+A diagnostic release for the "Something went wrong" screen: it does not fix the underlying crash yet — it makes it visible and makes recovery reliable. Notes: [`releases/TimeTable-v1.26.md`](releases/TimeTable-v1.26.md).
+
+- **The crash details are no longer lost or hidden.** The crash record was written asynchronously and could be discarded when the process died, and the details panel was collapsed — so the screen appeared blank with nothing to act on. The record is now written synchronously, recoverable from the on-disk marker, and shown by default
+- **An undeletable crash marker can no longer trap you on the recovery screen.** Clearing now timestamps the clear, so a stale marker is ignored — previously the screen returned on every launch and both buttons appeared to do nothing
+- **"Clear Cache & Restart" can no longer hang**, and no longer deletes your saved courses, pinned course or settings
 
 ### What's new in v1.25
 

@@ -26,8 +26,10 @@ import kotlinx.coroutines.withContext
  *
  * ## Recovery actions
  * - **Try Again** — clears the crash flag and resumes normal UI.
- * - **Clear Cache & Restart** — wipes Room + SharedPreferences and
- *   restarts the activity (safe-mode recovery).
+ * - **Clear Cache & Restart** — clears the timetable cache and the cache-derived preferences
+ *   (saved courses, the pinned course and your settings are kept), then restarts the activity.
+ *   It used to call `clearAllTables()` on Room plus a full preferences wipe, which silently
+ *   deleted the student's bookmarked courses and their entire setup.
  */
 @Composable
 fun FatalErrorScreen(
@@ -83,7 +85,10 @@ fun FatalErrorScreen(
 
                 // Expandable error details
                 if (crashInfo != null) {
-                    var showDetails by remember { mutableStateOf(false) }
+                    // Expanded by default. Collapsed, this panel made the recovery screen look
+                    // blank — nothing visible under the heading — which hid the one piece of
+                    // information needed to diagnose the crash.
+                    var showDetails by remember { mutableStateOf(true) }
                     TextButton(onClick = { showDetails = !showDetails }) {
                         Text(if (showDetails) "Hide details" else "Show error details")
                     }

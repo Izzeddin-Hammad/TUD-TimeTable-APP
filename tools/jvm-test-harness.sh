@@ -53,6 +53,7 @@ MAIN_SOURCES=(
   "app/src/main/java/com/example/timetablescraper/api/SyncStrategy.kt"
   "app/src/main/java/com/example/timetablescraper/api/TimetableUtils.kt"
   "app/src/main/java/com/example/timetablescraper/util/SafePrefs.kt"
+  "app/src/main/java/com/example/timetablescraper/util/CrashFlags.kt"
 )
 
 TEST_SOURCES=(
@@ -65,6 +66,7 @@ TEST_SOURCES=(
   "app/src/test/java/com/example/timetablescraper/api/TimetableUtilsEdgeCaseTest.kt"
   "app/src/test/java/com/example/timetablescraper/api/GroupFilteringTest.kt"
   "app/src/test/java/com/example/timetablescraper/util/SafePrefsTest.kt"
+  "app/src/test/java/com/example/timetablescraper/util/CrashFlagsTest.kt"
 )
 
 TEST_CLASSES=(
@@ -77,6 +79,8 @@ TEST_CLASSES=(
   "com.example.timetablescraper.api.TimetableUtilsEdgeCaseTest"
   "com.example.timetablescraper.api.GroupFilteringTest"
   "com.example.timetablescraper.util.SafePrefsTest"
+  "com.example.timetablescraper.util.CrashFlagsTest"
+  "com.example.timetablescraper.util.CrashMarkerTest"
 )
 
 if [[ "${1:-}" == "--list" ]]; then
