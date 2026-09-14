@@ -1,6 +1,7 @@
 package com.example.timetablescraper.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -50,6 +51,12 @@ import com.example.timetablescraper.api.TimetableChange
 import com.example.timetablescraper.api.TimetableApiService
 import com.example.timetablescraper.api.TimetableEvent
 import com.example.timetablescraper.api.TimetableUtils
+import com.example.timetablescraper.ui.components.IosSegmentedControl
+import com.example.timetablescraper.ui.theme.IosRadius
+import com.example.timetablescraper.ui.theme.IosTheme
+import com.example.timetablescraper.ui.theme.Motion
+import com.example.timetablescraper.ui.theme.SquircleShape
+import com.example.timetablescraper.ui.theme.iosPressable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -401,7 +408,12 @@ fun TimetableScreen(
             .collect { cached ->
                 // Nothing cached yet: the loader owns first paint, so don't flash an empty week.
                 if (cached.isEmpty()) return@collect
-                val updatedEvents = cached.map { TimetableUtils.toUiEvent(it, weekStart) }
+                // Map off the main thread. `toUiEvent` parses an ISO date per event, and this runs
+                // on every cache emission (i.e. after every background sync); doing it inline put
+                // N date parses inside a frame.
+                val updatedEvents = withContext(Dispatchers.Default) {
+                    cached.map { TimetableUtils.toUiEvent(it, weekStart) }
+                }
                 if (updatedEvents != events) {
                     events = updatedEvents
                     // The cache only changes when a sync (or a load) has completed successfully,
@@ -486,12 +498,12 @@ fun TimetableScreen(
                             onSavedChanged?.invoke(newSaved, selectedGroup)
                             coroutineScope.launch {
                                 val group = selectedGroup
-                                val nameWithGroup = if (group != null) {
-                                    val fullGroup = group.split("/")
-                                        .drop(1).joinToString("/")
-                                    "${selectedCourse.name} ($fullGroup)"
-                                } else selectedCourse.name
-                                val courseToSave = selectedCourse.copy(name = nameWithGroup)
+                                // One shared rule for saved-course names; see
+                                // TimetableUtils.savedCourseName. This block used to append the
+                                // cohort unconditionally, producing "… (MLAI/G2) (MLAI/G2)".
+                                val courseToSave = selectedCourse.copy(
+                                    name = TimetableUtils.savedCourseName(selectedCourse.name, group),
+                                )
                                 if (newSaved) {
                                     repository.saveCourse(courseToSave, group)
                                 } else {
@@ -653,8 +665,16 @@ fun TimetableScreen(
                 }
             }
 
-            // When user manually switches semester tab, reset to that semester's first active week
-            LaunchedEffect(activeSemester) {
+            // When user manually switches semester tab, reset to that semester's first active week.
+            //
+            // `visibleWeeks` is also a key: without it the correction only ran on a semester change,
+            // so opening a saved course whose stored week is not in the current semester's list left
+            // `currentMonday` pointing outside `visibleWeeks`. The label then fell back to the first
+            // visible week ("W1 · Sep 14 – Sep 20") while the day strip and the fetched sessions
+            // still used the stale Monday (Sep 7 …) — the dates under the week heading belonged to a
+            // different week. Confirmed on an emulator, and fixed by re-correcting whenever the week
+            // list itself changes.
+            LaunchedEffect(activeSemester, visibleWeeks) {
                 if (visibleWeeks.isNotEmpty()) {
                     if (!hasSavedState || currentMonday !in visibleWeeks) {
                         currentMonday = if (autoFirstWeek != null && autoFirstWeek in visibleWeeks)
@@ -677,27 +697,17 @@ fun TimetableScreen(
                 )
             }
 
-            // ── Semester tabs (wide, at top) ──────────────────────────────
+            // ── Semester tabs ────────────────────────────────────────────
             if (sem2WeekDate != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = activeSemester == 0,
-                        onClick = { activeSemester = 0 },
-                        label = { Text("Semester 1") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilterChip(
-                        selected = activeSemester == 1,
-                        onClick = { activeSemester = 1 },
-                        label = { Text("Semester 2") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                // An iOS segmented control: the selected segment is a thumb that *slides* on a
+                // spring. This was two Material FilterChips, whose highlight swaps instantly with
+                // a ripple — the clearest "this is not iOS" tell on the screen.
+                IosSegmentedControl(
+                    options = listOf("Semester 1", "Semester 2"),
+                    selectedIndex = activeSemester,
+                    onSelect = { activeSemester = it },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
             }
 
             Row(
@@ -832,7 +842,9 @@ fun TimetableScreen(
                 items(days.size) { index ->
                     val dayName = days[index]
                     val isSelected = selectedDayIndex == index
-                    val dateStr = TimetableUtils.formatDayDate(currentMonday, index)
+                    // Derived from the same value the week label uses, so the dates can never
+                    // disagree with the week heading.
+                    val dateStr = TimetableUtils.formatDayDate(displayMonday, index)
 
                     DayTabItem(
                         day = dayName,
@@ -859,7 +871,9 @@ fun TimetableScreen(
 
             Crossfade(
                 targetState = contentState,
-                animationSpec = tween(300),
+                // A short cross-fade rather than a 300ms tween: on iOS a content change inside a
+                // screen never slides, and a fixed duration makes it feel mechanical.
+                animationSpec = Motion.contentFade,
                 label = "content"
             ) { state ->
                 when (state) {
@@ -1060,12 +1074,32 @@ private fun EventsContent(
             contentPadding = PaddingValues(vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(filteredEvents, key = { "${it.id}_${it.weekStart}_${it.start}_${it.moduleCode}_${it.group}" }) { event ->
-                TimetableEventCard(event = event)
+            items(
+                items = filteredEvents,
+                key = { it.stableListKey() },
+                contentType = { "session" },
+            ) { event ->
+                Box(modifier = Modifier.animateItem()) {
+                    TimetableEventCard(event = event)
+                }
             }
         }
     }
 }
+
+/**
+ * Stable identity for a timetable row, matching the uniqueness de-duplication guarantees.
+ *
+ * The previous key was built from Room's autoincrement `id`, which is reassigned on every cache
+ * replace (`deleteForWeek` + `insertAll`). After each background sync, Compose therefore saw every
+ * item as brand new: no item animations, and every card rebuilt instead of reused.
+ *
+ * Every field here is part of `EventKey.dedupKey`, so two distinct cached rows can never produce
+ * the same key — a collision would crash Compose's lazy list ("key was already used").
+ */
+private fun TimetableEvent.stableListKey(): String = listOf(
+    moduleCode, title, type, lecturer, room, group, start, end,
+).joinToString("|")
 
 // ── Day tab ─────────────────────────────────────────────────────────────────
 
@@ -1078,24 +1112,33 @@ private fun DayTabItem(
     onClick: () -> Unit
 ) {
     val bgColor = if (isSelected) {
-        MaterialTheme.colorScheme.primary
+        IosTheme.colors.accent
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        IosTheme.colors.fill
     }
 
     val textColor = if (isSelected) {
-        MaterialTheme.colorScheme.onPrimary
+        IosTheme.colors.onAccent
     } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+        IosTheme.colors.label
     }
+
+    // A shared interaction source drives both the click and the press scale: without that the
+    // scale never animates (the same trap the component kit documents).
+    val interactionSource = remember { MutableInteractionSource() }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(SquircleShape(IosRadius.medium))
             .background(bgColor)
-            .clickable(onClick = onClick)
+            .iosPressable(pressedScale = 0.94f, haptic = isSelected.not(), interactionSource = interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
             .padding(horizontal = 20.dp, vertical = 10.dp)
     ) {
         Text(
@@ -1147,9 +1190,11 @@ private fun TimetableEventCard(event: TimetableEvent) {
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            shape = RoundedCornerShape(16.dp)
+            // iOS puts almost no elevation inside content: surfaces separate by fill and grouping,
+            // not by shadow. A 2dp-raised card is the Material idiom and reads as "not iOS".
+            colors = CardDefaults.cardColors(containerColor = IosTheme.colors.secondarySystemBackground),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = SquircleShape(IosRadius.card)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 // Module code + type badge

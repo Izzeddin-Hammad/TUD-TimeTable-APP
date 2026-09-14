@@ -9,14 +9,23 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.platform.LocalContext
 import com.example.timetablescraper.ui.screens.FatalErrorScreen
 import com.example.timetablescraper.ui.screens.SearchScreen
 import com.example.timetablescraper.ui.screens.SettingsScreen
 import com.example.timetablescraper.ui.screens.TimetableScreen
+import com.example.timetablescraper.ui.theme.Motion
 import com.example.timetablescraper.ui.theme.TimetableScraperTheme
 import com.example.timetablescraper.api.SearchResult
 import com.example.timetablescraper.api.TimetableRepository
+import com.example.timetablescraper.api.TimetableUtils
 import com.example.timetablescraper.update.UpdateChecker
 import com.example.timetablescraper.update.UpdateManager
 import com.example.timetablescraper.update.UpdateReceiver
@@ -97,15 +106,14 @@ private fun applyStarAndSave(
     repo: TimetableRepository,
     group: String? = null
 ) {
-    SyncPreferences.setStarredCourse(context, course.identity, course.name, course.timetable_type_id)
+    val displayName = TimetableUtils.savedCourseName(course.name, group)
+    // Star with the normalised name: the star is what the home screen titles itself with, and
+    // storing the raw upstream string is what carried "… (MLAI/G2) (MLAI/G2)" into the UI.
+    SyncPreferences.setStarredCourse(context, course.identity, displayName, course.timetable_type_id)
     scope.launch {
         try {
             if (!repo.isCourseSaved(course.identity)) {
-                val nameWithGroup = if (group != null) {
-                    val fullGroup = group.split("/").drop(1).joinToString("/")
-                    "${course.name} ($fullGroup)"
-                } else course.name
-                val courseToSave = course.copy(name = nameWithGroup)
+                val courseToSave = course.copy(name = displayName)
                 repo.saveCourse(courseToSave, group)
             }
         } catch (_: Exception) {
@@ -273,7 +281,24 @@ private fun MainApp() {
         }
     }
 
-    when (currentScreen) {
+    // iOS push/pop between screens: the incoming screen slides in from the trailing edge while
+    // the outgoing one parallaxes a third of the way out and fades. An instant `when` swap is the
+    // single biggest reason an Android app feels less fluid than an iOS one.
+    AnimatedContent(
+        targetState = currentScreen,
+        transitionSpec = {
+            (
+                slideInHorizontally(animationSpec = Motion.screen()) { fullWidth -> fullWidth } +
+                    fadeIn(animationSpec = Motion.contentFade)
+                ).togetherWith(
+                slideOutHorizontally(animationSpec = Motion.screen()) { fullWidth ->
+                    -(fullWidth * Motion.screenParallax).toInt()
+                } + fadeOut(animationSpec = Motion.contentFade)
+            ).using(SizeTransform(clip = false))
+        },
+        label = "screen"
+    ) { screen ->
+    when (screen) {
         "SEARCH" -> {
             SearchScreen(
                 query = searchQuery,
@@ -411,5 +436,6 @@ private fun MainApp() {
                 }
             )
         }
+    }
     }
 }
