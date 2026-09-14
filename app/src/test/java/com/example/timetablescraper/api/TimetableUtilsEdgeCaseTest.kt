@@ -122,6 +122,62 @@ class TimetableUtilsEdgeCaseTest {
         }
     }
 
+    // ── saved-course display names (the duplicated-cohort defect) ───────────────
+
+    @Test
+    fun `a name that already carries its cohort is not given a second one`() {
+        // The real value that was on screen on the emulator:
+        // "TU859/3 Computing (General Entry)  (Part-Time Tallaght) (MLAI/G2) (MLAI/G2)"
+        val upstream = "TU859/3 Computing (General Entry)  (Part-Time Tallaght) (MLAI/G2)"
+
+        val name = TimetableUtils.savedCourseName(upstream, "TU859/MLAI/G2")
+
+        assertEquals("TU859/3 Computing (General Entry) (Part-Time Tallaght) (MLAI/G2)", name)
+        assertEquals(1, Regex("""\(MLAI/G2\)""").findAll(name).count())
+    }
+
+    @Test
+    fun `a name without the cohort gains it exactly once`() {
+        val name = TimetableUtils.savedCourseName("TU859/3 Computing", "TU859/MLAI/G2")
+
+        assertEquals("TU859/3 Computing (MLAI/G2)", name)
+    }
+
+    @Test
+    fun `no group means no suffix`() {
+        assertEquals("TU859/3 Computing", TimetableUtils.savedCourseName("TU859/3 Computing", null))
+        assertEquals("TU859/3 Computing", TimetableUtils.savedCourseName("TU859/3 Computing", ""))
+        assertEquals("TU859/3 Computing", TimetableUtils.savedCourseName("TU859/3 Computing", "TU859"))
+    }
+
+    @Test
+    fun `a stale duplicated suffix is repaired on read`() {
+        // Names written by the previous implementation are persisted, so they must heal rather
+        // than require the student to re-star the course.
+        val stale = "TU859/3 Computing (Part-Time Tallaght) (MLAI/G2) (MLAI/G2)"
+
+        assertEquals(
+            "TU859/3 Computing (Part-Time Tallaght) (MLAI/G2)",
+            TimetableUtils.savedCourseName(stale),
+        )
+    }
+
+    @Test
+    fun `runs of whitespace collapse`() {
+        assertEquals(
+            "TU859/3 Computing (General Entry) (Part-Time)",
+            TimetableUtils.savedCourseName("  TU859/3   Computing  (General Entry)   (Part-Time)  "),
+        )
+    }
+
+    @Test
+    fun `different adjacent parenthetical parts are left alone`() {
+        // The repair must target a *repeated* suffix, not any two parentheses.
+        val name = TimetableUtils.savedCourseName("TU859 (Part-Time) (Tallaght)")
+
+        assertEquals("TU859 (Part-Time) (Tallaght)", name)
+    }
+
     @Test
     fun `classification places an event in the week containing its start date`() {
         val monday = LocalDate.of(2025, 9, 8)

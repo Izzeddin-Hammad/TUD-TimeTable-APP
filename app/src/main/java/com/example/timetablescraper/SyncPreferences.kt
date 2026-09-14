@@ -1,5 +1,6 @@
 package com.example.timetablescraper
 
+import com.example.timetablescraper.api.TimetableUtils
 import com.example.timetablescraper.util.SafePrefs
 
 import android.content.Context
@@ -177,7 +178,10 @@ object SyncPreferences {
         val id = SafePrefs.string(prefs(context).all, KEY_STARRED_ID, null) ?: return null
         val name = SafePrefs.string(prefs(context).all, KEY_STARRED_NAME, null) ?: return null
         val typeId = SafePrefs.string(prefs(context).all, KEY_STARRED_TYPE_ID, null) ?: return null
-        return Triple(id, name, typeId)
+        // Normalise on read. An earlier version persisted names with the cohort suffix appended
+        // twice ("… (MLAI/G2) (MLAI/G2)"), and the starred course's name is what titles the home
+        // screen — so a stale value would otherwise keep showing the defect until re-starred.
+        return Triple(id, TimetableUtils.savedCourseName(name), typeId)
     }
 
     fun setStarredCourse(context: Context, identity: String?, name: String?, typeId: String?) {

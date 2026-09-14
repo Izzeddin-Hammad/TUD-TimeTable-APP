@@ -17,6 +17,13 @@ object TimetableUtils {
 
     private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
+    // Cached formatters. These used to be built inside the functions below, i.e. a
+    // `DateTimeFormatter.ofPattern` allocation on every day tab and every week label — several per
+    // frame while scrolling, and the README already claimed (incorrectly) that they were cached.
+    private val DAY_DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
+    private val WEEK_RANGE_START_FORMATTER = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
+    private val WEEK_RANGE_END_FORMATTER = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH)
+
     /**
      * Dublin timezone resolved eagerly with a safe fallback.
      * If the IANA database is somehow incomplete, the system default is used
@@ -98,13 +105,13 @@ object TimetableUtils {
         val date = monday.plusDays(dayOffset.toLong())
         // Locale-pinned: the old formatter used the device default, so a German device rendered
         // "Okt 6" while the rest of the app (and the tests) assumed English month names.
-        return date.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH))
+        return date.format(DAY_DATE_FORMATTER)
     }
 
     fun formatWeekRange(monday: LocalDate): String {
         val sunday = monday.plusDays(6)
-        val startStr = monday.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH))
-        val endStr = sunday.format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH))
+        val startStr = monday.format(WEEK_RANGE_START_FORMATTER)
+        val endStr = sunday.format(WEEK_RANGE_END_FORMATTER)
         return "$startStr – $endStr"
     }
 
@@ -249,6 +256,33 @@ object TimetableUtils {
 
         val allKeys = allWeeks.map { it.format(DATE_FORMATTER) }.toSet()
         return Pair(activeKeys, allKeys - activeKeys)
+    }
+
+    /**
+     * Display name for a saved or starred course.
+     *
+     * The institution's own course names already end with their cohort suffix, e.g.
+     * `TU859/3 Computing (General Entry)  (Part-Time Tallaght) (MLAI/G2)`. The previous
+     * implementation appended the cohort unconditionally, so the home screen showed
+     * `… (MLAI/G2) (MLAI/G2)` — and because that string was *persisted* as the starred course's
+     * name, it survived reinstalls and upgrades.
+     *
+     * Three rules, each fixing an observed defect:
+     *
+     *  1. collapse runs of whitespace — the upstream name contains a double space that rendered
+     *     verbatim;
+  2. repair an already-duplicated adjacent suffix (`(X) (X)` → `(X)`), so stale saved values heal
+     *    on read rather than needing a re-star;
+  3. append the cohort only when the name does not already mention it.
+     */
+    fun savedCourseName(name: String, group: String? = null): String {
+        var cleaned = name.replace(Regex("\\s+"), " ").trim()
+        cleaned = cleaned.replace(Regex("\\(([^()]+)\\)\\s*\\(\\1\\)"), "($1)").trim()
+
+        val fullGroup = group?.split("/")?.drop(1)?.joinToString("/")?.trim().orEmpty()
+        if (fullGroup.isEmpty()) return cleaned
+        if (cleaned.contains("($fullGroup)", ignoreCase = true)) return cleaned
+        return "$cleaned ($fullGroup)"
     }
 
     fun safeFormat(date: LocalDate, formatter: DateTimeFormatter): String {
