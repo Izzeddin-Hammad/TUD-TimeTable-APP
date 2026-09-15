@@ -294,6 +294,23 @@ object SyncPreferences {
         prefs(context).edit().putBoolean(KEY_HIDE_EMPTY_WEEKS, hide).apply()
     }
 
+    // ── App theme ────────────────────────────────────────────────────
+
+    private const val KEY_APP_THEME = "app_theme_id"
+
+    /**
+     * The student's chosen theme id (see `AppTheme`), or `null` when they have never chosen one —
+     * in which case the caller applies the default. Stored as a plain id rather than a theme object
+     * so this layer stays free of UI types; an id that no longer matches anything resolves to the
+     * default at the call site.
+     */
+    fun getThemeId(context: Context): String? =
+        SafePrefs.string(prefs(context).all, KEY_APP_THEME, null)
+
+    fun setThemeId(context: Context, id: String) {
+        prefs(context).edit().putString(KEY_APP_THEME, id).apply()
+    }
+
     // ── Full-year week classification cache ─────────────────────────
 
     private const val KEY_ACTIVE_WEEKS_PREFIX = "active_weeks_"

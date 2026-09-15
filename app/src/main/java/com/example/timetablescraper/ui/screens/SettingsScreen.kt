@@ -5,13 +5,19 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Search
@@ -19,6 +25,7 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.core.content.ContextCompat
 import com.example.timetablescraper.api.TimetableUtils
+import com.example.timetablescraper.ui.theme.AppTheme
 import com.example.timetablescraper.ui.theme.IosTheme
 import com.example.timetablescraper.ui.theme.IosType
 import java.time.LocalDate
@@ -26,6 +33,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,7 +53,9 @@ import java.util.*
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onSavedCourseSelected: (SearchResult, String?) -> Unit = { _, _ -> }
+    onSavedCourseSelected: (SearchResult, String?) -> Unit = { _, _ -> },
+    selectedThemeId: String = AppTheme.DEFAULT.id,
+    onThemeSelected: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as TimetableApplication
@@ -149,7 +159,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Sync & Cache Settings") },
+                title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -168,7 +178,31 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ── Auto-refresh section ────────────────────────────────────
+            // ── Appearance section ───────────────────────────────
+            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Appearance",
+                        style = IosType.headline,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Pick a theme. Colours apply across the whole app.",
+                        style = IosType.footnote,
+                        color = IosTheme.colors.secondaryLabel
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AppTheme.entries.forEach { theme ->
+                        ThemeOptionRow(
+                            theme = theme,
+                            selected = theme.id == selectedThemeId,
+                            onClick = { onThemeSelected(theme.id) },
+                        )
+                    }
+                }
+            }
+
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -866,6 +900,68 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+/**
+ * One row of the theme picker: a live preview swatch, the theme's name, and a check when chosen.
+ *
+ * The swatch is drawn in the *option's own* colours — not the active palette's — in whichever
+ * light/dark mode the device is currently in, so the list previews what each theme would look like
+ * right now.
+ */
+@Composable
+private fun ThemeOptionRow(
+    theme: AppTheme,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val preview = theme.colors(isSystemInDarkTheme())
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(preview.systemBackground)
+                .border(1.dp, preview.separator, RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(preview.accent)
+            )
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                theme.label,
+                style = IosType.body,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = IosTheme.colors.label
+            )
+            Text(
+                theme.description,
+                style = IosType.footnote,
+                color = IosTheme.colors.secondaryLabel
+            )
+        }
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = "Selected",
+                tint = IosTheme.colors.accent,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 

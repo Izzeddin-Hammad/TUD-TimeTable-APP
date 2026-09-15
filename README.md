@@ -59,6 +59,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Resource Efficiency** — `DateTimeFormatter` instances cached globally; date parsing offloaded to `Dispatchers.Default`
 
 ### UI/UX
+- **Themes** — Pick from six colour themes (Classic plus five cozy ones: Latte, Sage, Dusk, Peach, Mist) in Settings → Appearance, each shown with a live preview swatch. The choice applies app-wide and is remembered across restarts
 - **iOS-style design system** — Jetpack Compose screens built on a custom iOS-style theme (colours, type and components) with light/dark support and smooth crossfade animations
 - **In-App Self-Updating** — Scans the `releases/` directory on GitHub (via Contents API) for new APK files; prompts with an update dialog when a newer version is detected
 - **Search History** — Quick re-access to recent searches with single-entry delete and "Delete All" button
@@ -156,13 +157,21 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v1.28)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.28-debug.apk)
+[**Download latest APK (v1.29)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.29-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
 > **If your app currently shows "Something went wrong" on launch, install this APK directly**
 > rather than using "Check for updates" — the installed build crashes before that screen is
 > reachable. Fixes a crash that affected v1.24–v1.26. Your saved courses and settings are not touched.
+
+### What's new in v1.29
+
+Pick a theme. Notes: [`releases/TimeTable-v1.29.md`](releases/TimeTable-v1.29.md).
+
+- **Six themes, chosen in Settings → Appearance.** Classic (the original iOS palette, and the default) plus five cozy ones — Latte, Sage, Dusk, Peach and Mist — each with a live preview swatch. Picking one re-tints the whole app at once and is remembered across restarts
+- **Every theme has a light and a dark variant**, so the app still follows the system's light/dark setting; only the hue is yours
+- **A cozy palette is warm and low-contrast** — off-white (or warm deep grey in dark) rather than pure white/black, with a muted accent
 
 ### What's new in v1.28
 

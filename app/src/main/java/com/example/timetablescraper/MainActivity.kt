@@ -21,6 +21,7 @@ import com.example.timetablescraper.ui.screens.FatalErrorScreen
 import com.example.timetablescraper.ui.screens.SearchScreen
 import com.example.timetablescraper.ui.screens.SettingsScreen
 import com.example.timetablescraper.ui.screens.TimetableScreen
+import com.example.timetablescraper.ui.theme.AppTheme
 import com.example.timetablescraper.ui.theme.Motion
 import com.example.timetablescraper.ui.theme.TimetableScraperTheme
 import com.example.timetablescraper.api.SearchResult
@@ -58,7 +59,16 @@ class MainActivity : ComponentActivity() {
         val crashState = mutableStateOf<CrashHandler.CrashInfo?>(previousCrash)
 
         setContent {
-            TimetableScraperTheme {
+            // The picked theme lives above the theme itself, so choosing one in Settings repaints
+            // the whole app. The read is defensive: a hand-edited preference must not break
+            // composition of the root.
+            var themeId by remember {
+                mutableStateOf(
+                    runCatching { SyncPreferences.getThemeId(this@MainActivity) }.getOrNull()
+                )
+            }
+
+            TimetableScraperTheme(theme = AppTheme.fromId(themeId)) {
                 val currentCrash = crashState.value
 
                 if (currentCrash != null) {
@@ -88,7 +98,13 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     // ── Normal application UI ────────────────────
-                    MainApp()
+                    MainApp(
+                        selectedThemeId = themeId ?: AppTheme.DEFAULT.id,
+                        onThemeSelected = { id ->
+                            themeId = id
+                            runCatching { SyncPreferences.setThemeId(this@MainActivity, id) }
+                        },
+                    )
                 }
             }
         }
@@ -123,7 +139,10 @@ private fun applyStarAndSave(
 }
 
 @Composable
-private fun MainApp() {
+private fun MainApp(
+    selectedThemeId: String,
+    onThemeSelected: (String) -> Unit,
+) {
     val context = LocalContext.current
 
     // Protected coroutine scope with a fatal-error handler.
@@ -433,7 +452,9 @@ private fun MainApp() {
                     selectedCourse = course
                     preselectedGroup = group
                     currentScreen = "TIMETABLE"
-                }
+                },
+                selectedThemeId = selectedThemeId,
+                onThemeSelected = onThemeSelected,
             )
         }
     }

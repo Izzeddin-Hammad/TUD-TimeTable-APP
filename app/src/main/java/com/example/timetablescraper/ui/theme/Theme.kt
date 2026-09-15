@@ -59,18 +59,21 @@ private fun iosColorScheme(c: IosColors): ColorScheme {
 /**
  * The app theme.
  *
- * [dynamicColor] defaults to **false**, which is a deliberate change: it used to be on, so on
- * Android 12+ every screen was tinted from the user's wallpaper. That is an Android idea, and it
- * is precisely what stops the app from looking like an iOS app. Set it to true only if you want
- * the old behaviour back.
+ * [theme] is the student's choice of hue (Settings → Appearance); it carries a light and a dark
+ * palette, so the system still decides light vs dark and only the colour changes. [dynamicColor]
+ * defaults to **false**, which is a deliberate change: it used to be on, so on Android 12+ every
+ * screen was tinted from the user's wallpaper. That is an Android idea, and it is precisely what
+ * stops the app from looking like an iOS app — and it would fight the picked theme. Set it to true
+ * only if you want the old behaviour back.
  */
 @Composable
 fun TimetableScraperTheme(
+    theme: AppTheme = AppTheme.DEFAULT,
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val iosColors = if (darkTheme) DarkIosColors else LightIosColors
+    val iosColors = theme.colors(darkTheme)
     val colorScheme = if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val context = LocalContext.current
         if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
