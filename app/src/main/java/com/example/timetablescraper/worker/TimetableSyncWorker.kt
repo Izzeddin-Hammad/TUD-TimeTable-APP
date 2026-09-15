@@ -151,31 +151,31 @@ class TimetableSyncWorker(
                         mondayDate = currentMonday
                     )
 
-                    if (response.events.isNotEmpty()) {
-                        dao.deleteForWeek(courseIdentity, weekStart)
-                        val entities = TimetableUtils.deduplicateEvents(response.events)
-                            .map { event ->
-                                CachedEventEntity(
-                                    courseIdentity = courseIdentity,
-                                    weekStart = weekStart,
-                                    fetchedAt = now,
-                                    moduleCode = event.module_code,
-                                    title = event.title,
-                                    type = event.type,
-                                    lecturer = event.lecturer,
-                                    room = event.room,
-                                    start = event.start,
-                                    end = event.end,
-                                    // Store the institution's spelling; the canonical form is derived on read.
-                                    group = event.groupLabel.ifBlank { event.group },
-                                    courseName = courseName
-                                )
-                            }
-                        dao.insertAll(entities)
-                        syncedCount++
-                    }
+                    // A successful response always replaces the cached week, empty included: an
+                    // empty week is real information, and skipping the write left the previous
+                    // rows behind for the cache-fresh fast path to resurrect on every load.
+                    val entities = TimetableUtils.deduplicateEvents(response.events)
+                        .map { event ->
+                            CachedEventEntity(
+                                courseIdentity = courseIdentity,
+                                weekStart = weekStart,
+                                fetchedAt = now,
+                                moduleCode = event.module_code,
+                                title = event.title,
+                                type = event.type,
+                                lecturer = event.lecturer,
+                                room = event.room,
+                                start = event.start,
+                                end = event.end,
+                                // Store the institution's spelling; the canonical form is derived on read.
+                                group = event.groupLabel.ifBlank { event.group },
+                                courseName = courseName
+                            )
+                        }
+                    dao.replaceWeek(courseIdentity, weekStart, entities)
+                    syncedCount++
                 } catch (e: Exception) {
-                    Log.w(TAG, "Sync failed for course $courseIdentity: ${e.message}")
+                    Log.w(TAG, "Sync failed: ${e.message}")
                     failedCount++
                 }
             }

@@ -54,21 +54,10 @@ class TimetableRepository(
      * The background week scanner (30+ weeks) no longer blocks user navigation.
      */
 
-    /** Indexable cache for checking week presence without raw DAO calls. */
-    val weekCacheIndex: WeekCacheIndex by lazy { WeekCacheIndex(dao) }
-
     /** Current effective TTL in milliseconds (from the sync strategy). */
     val currentTtlMillis: Long get() = syncStrategy.ttlMillis()
 
     companion object {
-        /**
-         * Legacy TTL constant retained for backward compatibility with tests.
-         * Production code should use the strategy-aware [currentTtlMillis].
-         */
-        @Deprecated("Use currentTtlMillis from the repository instance instead",
-            replaceWith = ReplaceWith("repository.currentTtlMillis"))
-        const val CACHE_TTL_MS = 4 * 60 * 60 * 1000L
-
         /** How long to keep old cached data before pruning (30 days). */
         private const val PRUNE_AGE_MS = 30 * 24 * 60 * 60 * 1000L
     }
@@ -119,13 +108,25 @@ class TimetableRepository(
                 if (cachedEvents.isNotEmpty()) {
                     // All events for the same course+week share the same fetchedAt
                     val lastFetched = cachedEvents.first().fetchedAt
-                    val age = System.currentTimeMillis() - lastFetched
 
-                    if (age < effectiveTtl) {
+                    if (System.currentTimeMillis() - lastFetched < effectiveTtl) {
                         // Cache is fresh within the chosen sync window →
                         // return immediately, ZERO network calls
                         return@withContext CacheResult(
                             events = cachedEvents.map { it.toApiEvent() },
+                            source = CacheSource.CACHE_FRESH
+                        )
+                    }
+                } else if (context != null) {
+                    // A week that was fetched successfully but came back *empty* has no rows to
+                    // carry a timestamp, so its fetch time lives in a marker. Without this, most
+                    // academic weeks are empty and every visit to one went to the network — and an
+                    // offline student was shown an error instead of the stored fact "this week has
+                    // no classes".
+                    val markedAt = SyncPreferences.getWeekCachedAt(context, courseIdentity, weekStart)
+                    if (markedAt != null && System.currentTimeMillis() - markedAt < effectiveTtl) {
+                        return@withContext CacheResult(
+                            events = emptyList(),
                             source = CacheSource.CACHE_FRESH
                         )
                     }
@@ -172,8 +173,10 @@ class TimetableRepository(
                         courseName = courseName ?: ""
                     )
                 }
-                dao.deleteForWeek(courseIdentity, weekStart)
-                dao.insertAll(entities)
+                dao.replaceWeek(courseIdentity, weekStart, entities)
+                // Record that this week was fetched, so an empty one is recognised as cached and
+                // is not re-fetched on every visit.
+                context?.let { SyncPreferences.markWeekCached(it, courseIdentity, weekStart) }
 
                 // Prune old data if cache is growing large
                 if (entities.isNotEmpty() && dao.count() > 1000) {
@@ -187,7 +190,11 @@ class TimetableRepository(
                 val changes = TimetableDiff.diff(oldCache.map { it.toApiEvent() }, deduped)
 
                 CacheResult(
-                    events = response.events,
+                    // The de-duplicated list — matching what was just written to the cache and what
+                    // the diff ran against. Returning the raw response showed duplicate rows on a
+                    // refresh but not on the cached read that followed it, so the visible class
+                    // count changed with no timetable change.
+                    events = deduped,
                     source = CacheSource.NETWORK,
                     changes = changes
                 )

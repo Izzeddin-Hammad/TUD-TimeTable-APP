@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
@@ -67,8 +68,28 @@ class MainActivity : ComponentActivity() {
                     runCatching { SyncPreferences.getThemeId(this@MainActivity) }.getOrNull()
                 )
             }
+            var customHue by remember {
+                mutableStateOf(
+                    runCatching {
+                        SyncPreferences.getCustomHue(this@MainActivity, AppTheme.DEFAULT_CUSTOM_HUE)
+                    }.getOrDefault(AppTheme.DEFAULT_CUSTOM_HUE)
+                )
+            }
+            var customSaturation by remember {
+                mutableStateOf(
+                    runCatching {
+                        SyncPreferences.getCustomSaturation(
+                            this@MainActivity, AppTheme.DEFAULT_CUSTOM_SATURATION
+                        )
+                    }.getOrDefault(AppTheme.DEFAULT_CUSTOM_SATURATION)
+                )
+            }
 
-            TimetableScraperTheme(theme = AppTheme.fromId(themeId)) {
+            TimetableScraperTheme(
+                theme = AppTheme.fromId(themeId),
+                customHue = customHue,
+                customSaturation = customSaturation,
+            ) {
                 val currentCrash = crashState.value
 
                 if (currentCrash != null) {
@@ -100,9 +121,19 @@ class MainActivity : ComponentActivity() {
                     // ── Normal application UI ────────────────────
                     MainApp(
                         selectedThemeId = themeId ?: AppTheme.DEFAULT.id,
+                        customHue = customHue,
+                        customSaturation = customSaturation,
                         onThemeSelected = { id ->
                             themeId = id
                             runCatching { SyncPreferences.setThemeId(this@MainActivity, id) }
+                        },
+                        onCustomColorChanged = { hue, saturation ->
+                            customHue = hue
+                            customSaturation = saturation
+                            runCatching {
+                                SyncPreferences.setCustomHue(this@MainActivity, hue)
+                                SyncPreferences.setCustomSaturation(this@MainActivity, saturation)
+                            }
                         },
                     )
                 }
@@ -141,7 +172,10 @@ private fun applyStarAndSave(
 @Composable
 private fun MainApp(
     selectedThemeId: String,
+    customHue: Float,
+    customSaturation: Float,
     onThemeSelected: (String) -> Unit,
+    onCustomColorChanged: (hue: Float, saturation: Float) -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -170,7 +204,11 @@ private fun MainApp(
 
     val repository = TimetableApplication.instance.repository
 
-    var starred by remember {
+    // Navigation and search state is *saveable*, not just remembered: it used to be plain
+    // `remember`, so rotating the device — or any other recreation — dropped the student back to
+    // the start screen with an empty query. SearchResult/UpdateResult are Serializable so a Bundle
+    // can hold them.
+    var starred by rememberSaveable {
         // Defensive: a corrupt custom attribute or a hand-edited preferences file must never be
         // able to take down composition of the root screen. (Reads also go through SafePrefs now,
         // so this is a second line of defence rather than the only one.)
@@ -178,8 +216,11 @@ private fun MainApp(
     }
     val initialScreen = if (starred != null) "TIMETABLE" else "SEARCH"
 
-    var currentScreen by remember { mutableStateOf(initialScreen) }
-    var selectedCourse by remember {
+    var currentScreen by rememberSaveable { mutableStateOf(initialScreen) }
+    // Which way the next screen transition travels: a push enters from the trailing edge, a pop
+    // returns from the leading edge. This used to be fixed, so every "back" animated as a push.
+    var navForward by rememberSaveable { mutableStateOf(true) }
+    var selectedCourse by rememberSaveable {
         mutableStateOf(
             if (starred != null) SearchResult(
                 name = starred!!.second, programme_code = "",
@@ -188,18 +229,21 @@ private fun MainApp(
             ) else null
         )
     }
-    var preselectedGroup by remember { mutableStateOf<String?>(null) }
+    var preselectedGroup by rememberSaveable { mutableStateOf<String?>(null) }
 
-    var searchQuery by remember { mutableStateOf("") }
-    var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchResults by rememberSaveable { mutableStateOf<List<SearchResult>>(emptyList()) }
+    // Deliberately not saveable: restoring `true` after a recreation would show a spinner with no
+    // coroutine behind it. A rotation mid-search just resets the indicator.
     var searchIsLoading by remember { mutableStateOf(false) }
-    var searchError by remember { mutableStateOf<String?>(null) }
-    var searchHasSearched by remember { mutableStateOf(false) }
+    var searchError by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchHasSearched by rememberSaveable { mutableStateOf(false) }
 
     // ── Self-updating state ──────────────────────────────────────────────
-    var showUpdateDialog by remember { mutableStateOf(false) }
-    var updateResult by remember { mutableStateOf<UpdateChecker.UpdateResult?>(null) }
-    var updateCheckDone by remember { mutableStateOf(false) }
+    // Saveable so a rotation does not re-run the network check and lose the offered update.
+    var showUpdateDialog by rememberSaveable { mutableStateOf(false) }
+    var updateResult by rememberSaveable { mutableStateOf<UpdateChecker.UpdateResult?>(null) }
+    var updateCheckDone by rememberSaveable { mutableStateOf(false) }
 
     // Check for updates once on launch
     LaunchedEffect(Unit) {
@@ -263,7 +307,7 @@ private fun MainApp(
     }
 
     // ── Back navigation logic ───────────────────────────────────────
-    fun goToStarredOrExit() {
+    fun goToStarredOrExit(forward: Boolean = false) {
         val s = starred
         if (s != null) {
             selectedCourse = SearchResult(
@@ -272,6 +316,7 @@ private fun MainApp(
                 selection_id = "", timetable_type_id = s.third
             )
             preselectedGroup = null
+            navForward = forward
             currentScreen = "TIMETABLE"
         } else {
             (context as? android.app.Activity)?.finish()
@@ -287,6 +332,7 @@ private fun MainApp(
             // No starred course — go to search, don't exit
             selectedCourse = null
             preselectedGroup = null
+            navForward = false
             currentScreen = "SEARCH"
         }
     }
@@ -306,14 +352,19 @@ private fun MainApp(
     AnimatedContent(
         targetState = currentScreen,
         transitionSpec = {
+            // iOS push/pop. Nothing cross-fades: two translucent full-screen layers overlapping is
+            // what made this look muddy, and the direction used to be fixed, so every "back"
+            // animated as though it were a fresh push.
+            val push = navForward
             (
-                slideInHorizontally(animationSpec = Motion.screen()) { fullWidth -> fullWidth } +
-                    fadeIn(animationSpec = Motion.contentFade)
-                ).togetherWith(
-                slideOutHorizontally(animationSpec = Motion.screen()) { fullWidth ->
-                    -(fullWidth * Motion.screenParallax).toInt()
-                } + fadeOut(animationSpec = Motion.contentFade)
-            ).using(SizeTransform(clip = false))
+                slideInHorizontally(animationSpec = Motion.screen()) { fullWidth ->
+                    if (push) fullWidth else -fullWidth
+                } togetherWith
+                    slideOutHorizontally(animationSpec = Motion.screen()) { fullWidth ->
+                        val parallax = (fullWidth * Motion.screenParallax).toInt()
+                        if (push) -parallax else parallax
+                    }
+                ).using(SizeTransform(clip = false))
         },
         label = "screen"
     ) { screen ->
@@ -333,11 +384,15 @@ private fun MainApp(
                 onCourseSelected = { course, group ->
                     selectedCourse = course
                     preselectedGroup = group
+                    navForward = true
                     currentScreen = "TIMETABLE"
                 },
-                onSettingsClick = { currentScreen = "SETTINGS" },
+                onSettingsClick = {
+                    navForward = true
+                    currentScreen = "SETTINGS"
+                },
                 hasStarredCourse = starred != null,
-                onHomeClick = { goToStarredOrExit() }
+                onHomeClick = { goToStarredOrExit(forward = true) }
             )
         }
 
@@ -434,11 +489,15 @@ private fun MainApp(
                         }
                     },
                     onSearchClick = {
+                        navForward = false
                         currentScreen = "SEARCH"
                         selectedCourse = null
                         preselectedGroup = null
                     },
-                    onSettingsClick = { currentScreen = "SETTINGS" },
+                    onSettingsClick = {
+                        navForward = true
+                        currentScreen = "SETTINGS"
+                    },
                     onBack = { goBackFromTimetable(viewingStarred) },
                     showBackArrow = !viewingStarred
                 )
@@ -451,10 +510,14 @@ private fun MainApp(
                 onSavedCourseSelected = { course, group ->
                     selectedCourse = course
                     preselectedGroup = group
+                    navForward = true
                     currentScreen = "TIMETABLE"
                 },
                 selectedThemeId = selectedThemeId,
+                customHue = customHue,
+                customSaturation = customSaturation,
                 onThemeSelected = onThemeSelected,
+                onCustomColorChanged = onCustomColorChanged,
             )
         }
     }

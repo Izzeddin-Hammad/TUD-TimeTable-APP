@@ -240,9 +240,16 @@ object SyncPreferences {
     fun getSavedWeek(context: Context, courseIdentity: String): String? =
         SafePrefs.string(prefs(context).all, "$KEY_VIEW_WEEK_PREFIX$courseIdentity", null)
 
-    /** Restore the saved day index for a course, or 0 (Monday) if never viewed. */
+    /**
+     * Restore the saved day index for a course, or 0 (Monday) if never viewed.
+     *
+     * Clamped defensively: this value indexes the day strip, and a stale or hand-edited preference
+     * (a 7 from an older schema, say) used to crash the timetable with an IndexOutOfBoundsException
+     * while it was being composed.
+     */
     fun getSavedDayIndex(context: Context, courseIdentity: String): Int =
         SafePrefs.int(prefs(context).all, "$KEY_VIEW_DAY_PREFIX$courseIdentity", 0)
+            .coerceIn(0, 6)
 
     /** Delete all view state for a course (e.g. when a course is removed). */
     fun clearCourseViewState(context: Context, courseIdentity: String) {
@@ -297,6 +304,8 @@ object SyncPreferences {
     // ── App theme ────────────────────────────────────────────────────
 
     private const val KEY_APP_THEME = "app_theme_id"
+    private const val KEY_CUSTOM_HUE = "app_theme_custom_hue"
+    private const val KEY_CUSTOM_SATURATION = "app_theme_custom_saturation"
 
     /**
      * The student's chosen theme id (see `AppTheme`), or `null` when they have never chosen one —
@@ -309,6 +318,22 @@ object SyncPreferences {
 
     fun setThemeId(context: Context, id: String) {
         prefs(context).edit().putString(KEY_APP_THEME, id).apply()
+    }
+
+    /** The custom theme's hue in degrees (0–360), or [default] when it was never set. */
+    fun getCustomHue(context: Context, default: Float): Float =
+        SafePrefs.float(prefs(context).all, KEY_CUSTOM_HUE, default).coerceIn(0f, 360f)
+
+    fun setCustomHue(context: Context, hue: Float) {
+        prefs(context).edit().putFloat(KEY_CUSTOM_HUE, hue.coerceIn(0f, 360f)).apply()
+    }
+
+    /** The custom theme's saturation (0–1), or [default] when it was never set. */
+    fun getCustomSaturation(context: Context, default: Float): Float =
+        SafePrefs.float(prefs(context).all, KEY_CUSTOM_SATURATION, default).coerceIn(0f, 1f)
+
+    fun setCustomSaturation(context: Context, saturation: Float) {
+        prefs(context).edit().putFloat(KEY_CUSTOM_SATURATION, saturation.coerceIn(0f, 1f)).apply()
     }
 
     // ── Full-year week classification cache ─────────────────────────
@@ -358,6 +383,16 @@ object SyncPreferences {
     internal fun isWeekCached(context: Context, courseIdentity: String, weekStart: String): Boolean {
         return prefs(context).contains("$KEY_CACHED_WEEK_PREFIX$courseIdentity|$weekStart")
     }
+
+    /**
+     * When a specific (course, weekStart) pair was last fetched, or `null` if it never was.
+     *
+     * This is what lets a successfully-fetched *empty* week (which stores no rows, so it has no
+     * `fetchedAt` of its own) still be recognised as cached and served without a network call.
+     */
+    internal fun getWeekCachedAt(context: Context, courseIdentity: String, weekStart: String): Long? =
+        SafePrefs.long(prefs(context).all, "$KEY_CACHED_WEEK_PREFIX$courseIdentity|$weekStart", 0L)
+            .takeIf { it > 0L }
 
     /**
      * Clear only the cache-derived preferences: week classification, per-course view state,

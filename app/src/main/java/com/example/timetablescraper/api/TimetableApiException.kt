@@ -13,10 +13,6 @@ class TimetableApiException(
     message: String = "API error $httpCode"
 ) : Exception(message) {
 
-    val isRetryable: Boolean get() = httpCode >= 500 || httpCode == 429
-
-    val isConnectivityLoss: Boolean get() = false
-
     companion object {
         /** Factory for response objects when you have the raw OkHttp response. */
         fun fromResponse(code: Int, body: String?): TimetableApiException {

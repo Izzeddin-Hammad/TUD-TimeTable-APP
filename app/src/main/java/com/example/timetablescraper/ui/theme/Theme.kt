@@ -69,11 +69,13 @@ private fun iosColorScheme(c: IosColors): ColorScheme {
 @Composable
 fun TimetableScraperTheme(
     theme: AppTheme = AppTheme.DEFAULT,
+    customHue: Float = AppTheme.DEFAULT_CUSTOM_HUE,
+    customSaturation: Float = AppTheme.DEFAULT_CUSTOM_SATURATION,
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val iosColors = theme.colors(darkTheme)
+    val iosColors = theme.colors(darkTheme, customHue, customSaturation)
     val colorScheme = if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val context = LocalContext.current
         if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)

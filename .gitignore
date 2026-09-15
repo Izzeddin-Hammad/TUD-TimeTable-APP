@@ -34,3 +34,8 @@ tools/.agent-sqlite/
 vision-probe.png
 tools/*-mcp.sh
 tools/ui-sweep.py
+
+# Release signing material — must never be committed (see app/build.gradle.kts)
+keystore.properties
+*.jks
+*.keystore

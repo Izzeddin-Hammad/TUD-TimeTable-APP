@@ -1,5 +1,6 @@
 package com.example.timetablescraper.ui.screens
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.CrashHandler
+import com.example.timetablescraper.api.cache.TimetableDatabase
 import com.example.timetablescraper.ui.components.IosButton
 import com.example.timetablescraper.ui.components.IosButtonStyle
 import com.example.timetablescraper.ui.components.IosCard
@@ -46,6 +48,7 @@ import com.example.timetablescraper.ui.theme.IosType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Full-screen fatal error recovery composable.
@@ -197,28 +200,33 @@ fun FatalErrorScreen(
                     onClick = {
                         isClearing = true
                         scope.launch {
-                            // Recovery must not be able to strand the user on this screen: whatever
-                            // happens below, the button is re-enabled and the restart runs.
                             try {
                                 withContext(Dispatchers.IO) {
-                                    // Cache-only reset.
+                                    // Preferred: a cache-only reset through Room, which keeps the
+                                    // student's bookmarked courses and search history.
                                     //
-                                    // This previously called `db.clearAllTables()`, which also
-                                    // deleted `saved_courses` (the student's bookmarked courses) and
-                                    // `search_history`, and then wiped *every* sync preference —
-                                    // starred course, semester/week/day view state, chosen groups.
-                                    // A button labelled "Clear Cache" must not silently destroy
-                                    // user-created data, so only the timetable cache and the
-                                    // cache-derived preferences are cleared here.
-                                    com.example.timetablescraper.TimetableApplication.instance
-                                        .repository.clearAll()
-                                    com.example.timetablescraper.SyncPreferences
-                                        .clearCacheState(context)
-                                    CrashHandler.clearCrashFlag(context)
+                                    // It cannot run at all when the database is the thing that is
+                                    // broken — opening it is what fails — so fall back to deleting
+                                    // the database files. That works for a corrupt file or an
+                                    // invalid schema/migration state, and it is the only action
+                                    // that lets the next launch build a fresh database: without it
+                                    // this screen is an inescapable loop.
+                                    val clearedThroughRoom = runCatching {
+                                        com.example.timetablescraper.TimetableApplication.instance
+                                            .repository.clearAll()
+                                    }.isSuccess
+                                    if (!clearedThroughRoom) deleteDatabaseFiles(context)
+
+                                    runCatching {
+                                        com.example.timetablescraper.SyncPreferences
+                                            .clearCacheState(context)
+                                    }
+                                    runCatching { CrashHandler.clearCrashFlag(context) }
                                 }
-                            } catch (t: Throwable) {
-                                // Even a failure to clear must not trap the user: drop the crash
-                                // flag (best effort) and restart anyway.
+                            } catch (_: Throwable) {
+                                // Nothing may strand the user here: if even the reset above blew up,
+                                // delete the database files outright and restart anyway.
+                                runCatching { deleteDatabaseFiles(context) }
                                 runCatching { CrashHandler.clearCrashFlag(context) }
                             } finally {
                                 isClearing = false
@@ -235,5 +243,21 @@ fun FatalErrorScreen(
                 Spacer(modifier = Modifier.height(2.dp))
             }
         }
+    }
+}
+
+/**
+ * Deletes the cache database's files **without** opening Room.
+ *
+ * The recovery screen has to be able to clear a database that cannot be *opened* — and opening it
+ * is exactly what fails, so going through the repository cannot work. Deleting the file (plus its
+ * `-wal`/`-shm` companions) succeeds for a corrupt file or an invalid schema/migration state, and
+ * the next launch then builds a fresh database. Without this the screen is an inescapable loop:
+ * the reset would fail on the same broken database it is trying to clear.
+ */
+private fun deleteDatabaseFiles(context: Context) {
+    val databasePath = context.getDatabasePath(TimetableDatabase.DB_NAME).path
+    listOf(databasePath, "$databasePath-wal", "$databasePath-shm").forEach { candidate ->
+        runCatching { File(candidate).delete() }
     }
 }

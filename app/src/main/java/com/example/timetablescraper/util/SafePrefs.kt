@@ -56,6 +56,20 @@ object SafePrefs {
             else -> default
         }
 
+    /** The float stored at [key], or [default]. Accepts any numeric type and numeric strings. */
+    fun float(all: Map<String, *>, key: String, default: Float): Float =
+        when (val raw = all[key]) {
+            null -> default
+            is Float -> raw.takeIf { it.isFinite() } ?: default
+            is Double -> raw.takeIf { it.isFinite() }?.toFloat() ?: default
+            is Int -> raw.toFloat()
+            is Long -> raw.toFloat()
+            is Short -> raw.toFloat()
+            is Byte -> raw.toFloat()
+            is String -> raw.trim().toFloatOrNull()?.takeIf { it.isFinite() } ?: default
+            else -> default
+        }
+
     /** The boolean stored at [key], or [default]. Accepts `"true"`/`"false"` and numbers. */
     fun boolean(all: Map<String, *>, key: String, default: Boolean): Boolean =
         when (val raw = all[key]) {

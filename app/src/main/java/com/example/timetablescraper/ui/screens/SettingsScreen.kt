@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
@@ -31,11 +32,14 @@ import com.example.timetablescraper.ui.theme.IosType
 import java.time.LocalDate
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.SyncPreferences
 import com.example.timetablescraper.TimetableApplication
@@ -48,6 +52,7 @@ import com.example.timetablescraper.worker.TimetableSyncWorker
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,7 +60,10 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onSavedCourseSelected: (SearchResult, String?) -> Unit = { _, _ -> },
     selectedThemeId: String = AppTheme.DEFAULT.id,
+    customHue: Float = AppTheme.DEFAULT_CUSTOM_HUE,
+    customSaturation: Float = AppTheme.DEFAULT_CUSTOM_SATURATION,
     onThemeSelected: (String) -> Unit = {},
+    onCustomColorChanged: (hue: Float, saturation: Float) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as TimetableApplication
@@ -181,24 +189,57 @@ fun SettingsScreen(
             // ── Appearance section ───────────────────────────────
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Appearance",
-                        style = IosType.headline,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Pick a theme. Colours apply across the whole app.",
-                        style = IosType.footnote,
-                        color = IosTheme.colors.secondaryLabel
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    AppTheme.entries.forEach { theme ->
-                        ThemeOptionRow(
-                            theme = theme,
-                            selected = theme.id == selectedThemeId,
-                            onClick = { onThemeSelected(theme.id) },
+                    // Collapsed by default: choosing a theme is a once-in-a-while action, so the
+                    // list (and the custom sliders) live behind a disclosure row instead of
+                    // pushing every other setting off the screen.
+                    var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
+                    val activeTheme = AppTheme.fromId(selectedThemeId)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { appearanceExpanded = !appearanceExpanded },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Appearance",
+                                style = IosType.headline,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Theme: ${activeTheme.label}",
+                                style = IosType.footnote,
+                                color = IosTheme.colors.secondaryLabel
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowDown,
+                            contentDescription = if (appearanceExpanded) "Collapse" else "Expand",
+                            tint = IosTheme.colors.tertiaryLabel,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .rotate(if (appearanceExpanded) 180f else 0f)
                         )
+                    }
+                    if (appearanceExpanded) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AppTheme.entries.forEach { theme ->
+                            ThemeOptionRow(
+                                theme = theme,
+                                selected = theme.id == selectedThemeId,
+                                previewHue = customHue,
+                                previewSaturation = customSaturation,
+                                onClick = { onThemeSelected(theme.id) },
+                            )
+                        }
+                        if (activeTheme == AppTheme.CUSTOM) {
+                            CustomColorControls(
+                                hue = customHue,
+                                saturation = customSaturation,
+                                onChanged = onCustomColorChanged,
+                            )
+                        }
                     }
                 }
             }
@@ -914,9 +955,11 @@ fun SettingsScreen(
 private fun ThemeOptionRow(
     theme: AppTheme,
     selected: Boolean,
+    previewHue: Float,
+    previewSaturation: Float,
     onClick: () -> Unit,
 ) {
-    val preview = theme.colors(isSystemInDarkTheme())
+    val preview = theme.colors(isSystemInDarkTheme(), previewHue, previewSaturation)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -962,6 +1005,88 @@ private fun ThemeOptionRow(
                 modifier = Modifier.size(20.dp)
             )
         }
+    }
+}
+
+/**
+ * The sliders behind the Custom theme.
+ *
+ * One hue — plus how much of it the surfaces carry — is enough to recolour the whole app while
+ * keeping the cozy structure (`customColors` builds the palette from it). The effect is immediate:
+ * the theme sits above the app, so dragging repaints every screen, and the swatch below is a
+ * second, in-place preview.
+ */
+@Composable
+private fun CustomColorControls(
+    hue: Float,
+    saturation: Float,
+    onChanged: (hue: Float, saturation: Float) -> Unit,
+) {
+    val preview = AppTheme.CUSTOM.colors(isSystemInDarkTheme(), hue, saturation)
+    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+    Text(
+        "Custom colour",
+        style = IosType.subhead,
+        fontWeight = FontWeight.SemiBold,
+        color = IosTheme.colors.label
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Hue", style = IosType.body, modifier = Modifier.width(76.dp))
+        Slider(
+            value = hue,
+            onValueChange = { onChanged(it.roundToInt().toFloat(), saturation) },
+            valueRange = 0f..360f,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            "${hue.roundToInt()}°",
+            style = IosType.footnote,
+            color = IosTheme.colors.secondaryLabel,
+            modifier = Modifier.width(44.dp),
+            textAlign = TextAlign.End
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Vividness", style = IosType.body, modifier = Modifier.width(76.dp))
+        Slider(
+            value = saturation,
+            onValueChange = { onChanged(hue, (it * 100f).roundToInt() / 100f) },
+            valueRange = 0f..1f,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            "${(saturation * 100).roundToInt()}%",
+            style = IosType.footnote,
+            color = IosTheme.colors.secondaryLabel,
+            modifier = Modifier.width(44.dp),
+            textAlign = TextAlign.End
+        )
+    }
+    Spacer(modifier = Modifier.height(4.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(preview.systemBackground)
+                .border(1.dp, preview.separator, RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(preview.accent)
+            )
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Text(
+            "This is how it looks.",
+            style = IosType.footnote,
+            color = IosTheme.colors.secondaryLabel
+        )
     }
 }
 

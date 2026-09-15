@@ -1,8 +1,8 @@
-# TimeTable — Prototype
+# TimeTable
 
-> **⚠️ PROTOTYPE — TU Dublin only.** This app is a prototype/proof-of-concept that only supports **TU Dublin**. It connects to the TU Dublin Scientia Publish API. It is not intended for production use and may change significantly.
+> **⚠️ TU Dublin only.** This app supports a single institution, **TU Dublin**, and connects to its Scientia Publish API. It is an unofficial student project, not affiliated with TU Dublin.
 
-A prototype Android timetable app that fetches your TU Dublin university schedule directly from the Scientia Publish API — no manual entry needed.
+A native Android timetable app that fetches your TU Dublin university schedule directly from the Scientia Publish API — no manual entry needed.
 
 ## Features
 
@@ -61,7 +61,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 ### UI/UX
 - **Themes** — Pick from six colour themes (Classic plus five cozy ones: Latte, Sage, Dusk, Peach, Mist) in Settings → Appearance, each shown with a live preview swatch. The choice applies app-wide and is remembered across restarts
 - **iOS-style design system** — Jetpack Compose screens built on a custom iOS-style theme (colours, type and components) with light/dark support and smooth crossfade animations
-- **In-App Self-Updating** — Scans the `releases/` directory on GitHub (via Contents API) for new APK files; prompts with an update dialog when a newer version is detected
+- **In-App Self-Updating** — Scans the `releases/` directory on GitHub (via the Contents API) for new APK files; prompts with an update dialog when a newer version is detected. It matches both release and legacy debug APK names
 - **Search History** — Quick re-access to recent searches with single-entry delete and "Delete All" button
 - **Auto-Focus Keyboard** — The search field gains focus and opens the keyboard automatically when the search page opens
 - **Subgroup UI** — 32dp expand arrow with "Tap to reveal course sub-groups" label; full subgroup path displayed in filter chips
@@ -157,13 +157,25 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v1.29)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.29-debug.apk)
+[**Download latest APK (v2.0)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.0-release.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
-> **If your app currently shows "Something went wrong" on launch, install this APK directly**
-> rather than using "Check for updates" — the installed build crashes before that screen is
-> reachable. Fixes a crash that affected v1.24–v1.26. Your saved courses and settings are not touched.
+> v2.0 onward are **signed release builds** (R8-minified, ~1.8 MB) rather than debug APKs.
+>
+> **Upgrading from v1.29 or earlier? Uninstall first.** v2.0 is signed with a new key, and Android
+> refuses to install a differently-signed package over an existing one. Uninstalling clears the
+> local data (pinned course, bookmarks, settings) — re-pin your course once and you are set. Every
+> update *after* this one installs in place.
+
+### What's new in v2.0
+
+The first stable build: a full-app audit, then the blockers, correctness fixes and polish below. Not an exhaustive list — see [`releases/TimeTable-v2.0.md`](releases/TimeTable-v2.0.md).
+
+- **Signed release builds exist at all.** There was no signing config, so a release APK could not be installed and the updater could not recognise one. Both are fixed; releases are R8-minified and ~25 MB smaller
+- **A broken database is no longer an unbreakable crash loop** — the recovery button can delete the database file instead of going through the database it cannot open
+- **No more duplicate classes after a refresh, no half-written cache, no corrupt-preference crash**, and rotation no longer throws away your screen or your search
+- **Nothing is uploaded to Google backup any more**, and your course is no longer written to logcat
 
 ### What's new in v1.29
 

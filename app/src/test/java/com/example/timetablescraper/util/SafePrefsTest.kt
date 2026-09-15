@@ -19,6 +19,7 @@ class SafePrefsTest {
         assertEquals("fallback", SafePrefs.string(all, "k", "fallback"))
         assertEquals(7, SafePrefs.int(all, "k", 7))
         assertEquals(9L, SafePrefs.long(all, "k", 9L))
+        assertEquals(1.5f, SafePrefs.float(all, "k", 1.5f), 0f)
         assertTrue(SafePrefs.boolean(all, "k", true))
         assertEquals(setOf("a"), SafePrefs.stringSet(all, "k", setOf("a")))
         assertEquals(null, SafePrefs.string(all, "k"))
@@ -115,9 +116,27 @@ class SafePrefsTest {
             SafePrefs.string(all, "k", "d")
             SafePrefs.int(all, "k", 1)
             SafePrefs.long(all, "k", 1L)
+            SafePrefs.float(all, "k", 1f)
             SafePrefs.boolean(all, "k", false)
             SafePrefs.stringSet(all, "k", emptySet())
         }
         assertEquals(1, keys.size)
+    }
+
+    @Test
+    fun `float tolerates every numeric drift and rejects the rest`() {
+        // The custom theme's hue and saturation are stored as floats; a value written as another
+        // numeric type (or a string) must not throw, and a non-number must fall back.
+        assertEquals(0.55f, SafePrefs.float(mapOf("k" to 0.55f), "k", 0f), 0f)
+        assertEquals(0.55f, SafePrefs.float(mapOf("k" to 0.55), "k", 0f), 0.0001f)
+        assertEquals(28f, SafePrefs.float(mapOf("k" to 28), "k", 0f), 0f)
+        assertEquals(28f, SafePrefs.float(mapOf("k" to 28L), "k", 0f), 0f)
+        assertEquals(28f, SafePrefs.float(mapOf("k" to "28"), "k", 0f), 0f)
+        assertEquals(0.5f, SafePrefs.float(mapOf("k" to " 0.5 "), "k", 0f), 0f)
+        assertEquals(3f, SafePrefs.float(mapOf("k" to "not a number"), "k", 3f), 0f)
+        assertEquals(3f, SafePrefs.float(mapOf("k" to true), "k", 3f), 0f)
+        // NaN and infinity are not usable colours; they must not leak through.
+        assertEquals(3f, SafePrefs.float(mapOf("k" to Float.NaN), "k", 3f), 0f)
+        assertEquals(3f, SafePrefs.float(mapOf("k" to "NaN"), "k", 3f), 0f)
     }
 }

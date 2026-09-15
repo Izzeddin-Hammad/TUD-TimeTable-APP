@@ -124,14 +124,52 @@ object IosTheme {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Builds a "cozy" palette from a handful of anchors.
+ * Assembles a palette from its anchors, deriving the greys.
  *
- * A cozy theme is warm and low-contrast: the background is an off-white (or a warm deep grey in
- * dark) rather than pure white/black, and the accent is muted rather than saturated. The derived
- * greys — secondary/tertiary labels, separators, fills — are computed from the ink colour instead
- * of being hand-picked per theme, so every palette is internally consistent and none of them ends
- * up as clinical black-on-white. This is the one place in the app where a raw hex value is
- * allowed; `IosDesignLayerTest` enforces that.
+ * The derived greys — secondary/tertiary labels, separators, fills — are computed from the ink
+ * colour rather than hand-picked per theme, so every palette is internally consistent and none of
+ * them drifts. This is the one place in the app where a raw hex value is allowed;
+ * `IosDesignLayerTest` enforces that.
+ */
+private fun palette(
+    background: Color,
+    surface: Color,
+    surfaceRaised: Color,
+    ink: Color,
+    accent: Color,
+    green: Color,
+    red: Color,
+    orange: Color,
+    yellow: Color,
+    purple: Color,
+    teal: Color,
+    isDark: Boolean,
+): IosColors = IosColors(
+    systemBackground = background,
+    secondarySystemBackground = surface,
+    tertiarySystemBackground = surfaceRaised,
+    groupedBackground = background,
+    label = ink,
+    secondaryLabel = ink.copy(alpha = 0.66f),
+    tertiaryLabel = ink.copy(alpha = 0.38f),
+    separator = ink.copy(alpha = 0.14f),
+    fill = ink.copy(alpha = if (isDark) 0.16f else 0.09f),
+    fillStrong = ink.copy(alpha = if (isDark) 0.24f else 0.15f),
+    accent = accent,
+    green = green,
+    red = red,
+    orange = orange,
+    yellow = yellow,
+    purple = purple,
+    teal = teal,
+    isDark = isDark,
+)
+
+/**
+ * A "cozy" palette: warm and low-contrast.
+ *
+ * The background is an off-white (or a warm deep grey in dark) rather than pure white/black, and
+ * the accents are muted rather than saturated.
  */
 private fun cozy(
     background: Long,
@@ -146,29 +184,20 @@ private fun cozy(
     purple: Long,
     teal: Long,
     isDark: Boolean,
-): IosColors {
-    val inkColor = Color(ink)
-    return IosColors(
-        systemBackground = Color(background),
-        secondarySystemBackground = Color(surface),
-        tertiarySystemBackground = Color(surfaceRaised),
-        groupedBackground = Color(background),
-        label = inkColor,
-        secondaryLabel = inkColor.copy(alpha = 0.66f),
-        tertiaryLabel = inkColor.copy(alpha = 0.38f),
-        separator = inkColor.copy(alpha = 0.14f),
-        fill = inkColor.copy(alpha = if (isDark) 0.16f else 0.09f),
-        fillStrong = inkColor.copy(alpha = if (isDark) 0.24f else 0.15f),
-        accent = Color(accent),
-        green = Color(green),
-        red = Color(red),
-        orange = Color(orange),
-        yellow = Color(yellow),
-        purple = Color(purple),
-        teal = Color(teal),
-        isDark = isDark,
-    )
-}
+): IosColors = palette(
+    background = Color(background),
+    surface = Color(surface),
+    surfaceRaised = Color(surfaceRaised),
+    ink = Color(ink),
+    accent = Color(accent),
+    green = Color(green),
+    red = Color(red),
+    orange = Color(orange),
+    yellow = Color(yellow),
+    purple = Color(purple),
+    teal = Color(teal),
+    isDark = isDark,
+)
 
 // ── Cozy Latte — warm cream and caramel ─────────────────────────────────────
 internal val LightLatteIosColors = cozy(
@@ -231,6 +260,58 @@ internal val DarkMistIosColors = cozy(
 )
 
 /**
+ * Builds a palette from a single hue — the student's "custom colouring".
+ *
+ * The structure is the cozy one; only the hue varies, plus how much of it the surfaces carry.
+ * The category colours are offsets from the chosen hue, so tutorials, lectures and labs stay
+ * distinguishable from the accent instead of colliding with it; [IosColors.red] stays a warm red
+ * because it means "error" and must not be recoloured.
+ */
+internal fun customColors(hue: Float, saturation: Float, dark: Boolean): IosColors {
+    val s = saturation.coerceIn(0f, 1f)
+    val h = ((hue % 360f) + 360f) % 360f
+    fun shift(degrees: Float) = (((h + degrees) % 360f) + 360f) % 360f
+
+    // How much of the hue the surfaces carry. The floor keeps a hint of colour even at zero
+    // "vividness"; the ceiling is about where an off-white stops being a page and becomes a pastel
+    // fill — at lightness ~0.95 the saturation is what does the work, not the lightness, which is
+    // why this is not proportional to `s` alone.
+    val surfaceTint = 0.25f + s * 0.45f
+
+    return if (!dark) {
+        palette(
+            background = Color.hsl(h, surfaceTint, 0.955f),
+            surface = Color.hsl(h, surfaceTint * 1.05f, 0.915f),
+            surfaceRaised = Color.hsl(h, surfaceTint * 0.65f, 0.985f),
+            ink = Color.hsl(h, 0.18f + s * 0.22f, 0.17f),
+            accent = Color.hsl(h, 0.42f + s * 0.22f, 0.44f),
+            green = Color.hsl(shift(115f), 0.34f + s * 0.18f, 0.40f),
+            red = Color.hsl(6f, 0.50f, 0.46f),
+            orange = Color.hsl(shift(38f), 0.52f, 0.48f),
+            yellow = Color.hsl(shift(55f), 0.52f, 0.50f),
+            purple = Color.hsl(shift(255f), 0.34f + s * 0.16f, 0.46f),
+            teal = Color.hsl(shift(180f), 0.36f, 0.42f),
+            isDark = false,
+        )
+    } else {
+        palette(
+            background = Color.hsl(h, surfaceTint * 0.85f, 0.105f),
+            surface = Color.hsl(h, surfaceTint, 0.145f),
+            surfaceRaised = Color.hsl(h, surfaceTint * 1.05f, 0.20f),
+            ink = Color.hsl(h, 0.10f + s * 0.14f, 0.93f),
+            accent = Color.hsl(h, 0.38f + s * 0.24f, 0.70f),
+            green = Color.hsl(shift(115f), 0.30f + s * 0.16f, 0.66f),
+            red = Color.hsl(6f, 0.52f, 0.64f),
+            orange = Color.hsl(shift(38f), 0.48f, 0.68f),
+            yellow = Color.hsl(shift(55f), 0.48f, 0.70f),
+            purple = Color.hsl(shift(255f), 0.34f + s * 0.16f, 0.72f),
+            teal = Color.hsl(shift(180f), 0.32f, 0.64f),
+            isDark = true,
+        )
+    }
+}
+
+/**
  * A colour theme the student can pick from Settings.
  *
  * Each theme is a light *and* a dark palette, so the app keeps following the system's light/dark
@@ -242,29 +323,39 @@ enum class AppTheme(
     val label: String,
     val description: String,
 ) {
-    CLASSIC("classic", "Classic", "The original iOS palette"),
     LATTE("latte", "Cozy Latte", "Warm cream and caramel"),
     SAGE("sage", "Cozy Sage", "Soft sage and warm white"),
     DUSK("dusk", "Cozy Dusk", "Muted plum and lavender"),
     PEACH("peach", "Cozy Peach", "Peach and terracotta"),
     MIST("mist", "Cozy Mist", "Calm blue-grey"),
+    CUSTOM("custom", "Custom", "Pick your own colour"),
     ;
 
-    /** The palette for this theme in the given light/dark mode. */
-    fun colors(dark: Boolean): IosColors = when (this) {
-        CLASSIC -> if (dark) DarkIosColors else LightIosColors
+    /**
+     * The palette for this theme. [customHue]/[customSaturation] are only consulted by [CUSTOM];
+     * the presets ignore them, which keeps the call sites uniform.
+     */
+    fun colors(
+        dark: Boolean,
+        customHue: Float = DEFAULT_CUSTOM_HUE,
+        customSaturation: Float = DEFAULT_CUSTOM_SATURATION,
+    ): IosColors = when (this) {
         LATTE -> if (dark) DarkLatteIosColors else LightLatteIosColors
         SAGE -> if (dark) DarkSageIosColors else LightSageIosColors
         DUSK -> if (dark) DarkDuskIosColors else LightDuskIosColors
         PEACH -> if (dark) DarkPeachIosColors else LightPeachIosColors
         MIST -> if (dark) DarkMistIosColors else LightMistIosColors
+        CUSTOM -> customColors(customHue, customSaturation, dark)
     }
 
     companion object {
         /** Used when nothing is stored, or the stored id is unknown. */
-        val DEFAULT = CLASSIC
+        val DEFAULT = LATTE
+
+        /** Where the custom hue slider starts before the student touches it. */
+        const val DEFAULT_CUSTOM_HUE = 28f
+        const val DEFAULT_CUSTOM_SATURATION = 0.55f
 
         fun fromId(id: String?): AppTheme = entries.firstOrNull { it.id == id } ?: DEFAULT
     }
 }
-

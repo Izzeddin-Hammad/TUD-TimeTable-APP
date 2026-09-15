@@ -20,6 +20,9 @@ abstract class TimetableDatabase : RoomDatabase() {
     companion object {
         private const val TAG = "TimetableDatabase"
 
+        /** The on-disk database file name. Public so recovery can delete it without opening it. */
+        const val DB_NAME = "timetable_cache.db"
+
         @Volatile
         private var INSTANCE: TimetableDatabase? = null
 
@@ -91,7 +94,7 @@ abstract class TimetableDatabase : RoomDatabase() {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     TimetableDatabase::class.java,
-                    "timetable_cache.db"
+                    DB_NAME
                 )
                     .addMigrations(MIGRATION_6_7)
                     // Versions 1–5 may reset destructively: their schemas were never exported

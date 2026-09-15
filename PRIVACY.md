@@ -1,7 +1,7 @@
 # Privacy Policy — TimeTable
 
-**Last updated:** 23 June 2026  
-**App version:** 1.16  
+**Last updated:** 15 September 2026  
+**App version:** 2.0  
 **Developer:** Izzeddin Hammad  
 **Repository:** [Izzeddin-Hammad/TUD-TimeTable-APP](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP)
 
@@ -11,7 +11,9 @@
 
 **TimeTable collects no personal data, usage analytics, crash reports, or any other information from its users.**
 
-The app has no telemetry, no analytics SDK, no advertising, and no third-party tracking of any kind. It operates entirely on-device and communicates only with the TU Dublin Scientia Publish API to fetch publicly available timetable information.
+The app has no telemetry, no analytics SDK, no advertising, and no third-party tracking of any kind. It operates entirely on-device and communicates only with the TU Dublin Scientia Publish API to fetch publicly available timetable information, and with GitHub to check for a newer release.
+
+**Android backup is switched off** (`android:allowBackup="false"`, plus explicit excludes in the backup/transfer rules). Nothing this app stores — the cached timetable, your bookmarked courses or your search history — is uploaded to Google's cloud backup or copied by device-to-device transfer.
 
 ---
 
@@ -37,7 +39,7 @@ TU Dublin Scientia Publish API
 └─────────────────────────┘
         │
         ▼
-  GitHub Releases API
+  GitHub Contents API
   (only for update checks,
    no personal data sent)
 ```

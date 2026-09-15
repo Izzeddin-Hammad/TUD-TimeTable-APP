@@ -31,7 +31,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 object Motion {
 
     /** Response 0.35, damping 0.85 — the workhorse for layout and colour changes. */
-    fun <T> gentle(): AnimationSpec<T> = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+    fun <T> gentle(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
 
     /** Response 0.28, damping 0.8 — for small, direct manipulations (press, toggle). */
     fun <T> snappy(): AnimationSpec<T> = spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMedium)
@@ -45,8 +45,12 @@ object Motion {
     /**
      * Push/pop screen transitions. A spring, so a tap and a release in flight both feel right,
      * and typed generically because slides animate a pixel offset, not a float.
+     *
+     * StiffnessMedium rather than the MediumLow this used to be: a push that lingers reads as lag,
+     * and the old value settled slowly enough that the outgoing screen was still moving after the
+     * new one had visually arrived.
      */
-    fun <T> screen(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
+    fun <T> screen(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium)
 
     /** How far a pushed screen travels as a fraction of its width, and how far the one behind it
      *  parallaxes the other way. iOS moves the outgoing screen a third of the distance. */

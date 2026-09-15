@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+   Backup rules for API < 31 (see data_extraction_rules.xml for 31+).
+
+   Backup is switched off in the manifest (`android:allowBackup="false"`), and this file exists so
+   that the intent survives if anyone turns it back on: everything this app stores is the student's
+   own data — the cached timetable (which carries lecturer names, rooms and class groups), their
+   bookmarked courses and their search history — and PRIVACY.md promises it stays on the device.
+   Auto-backup used to upload all of it to the user's Google Drive.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="external" path="." />
 </full-backup-content>

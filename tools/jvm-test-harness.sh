@@ -66,6 +66,7 @@ TEST_SOURCES=(
   "app/src/test/java/com/example/timetablescraper/api/TimetableUtilsTest.kt"
   "app/src/test/java/com/example/timetablescraper/api/TimetableUtilsEdgeCaseTest.kt"
   "app/src/test/java/com/example/timetablescraper/api/GroupFilteringTest.kt"
+  "app/src/test/java/com/example/timetablescraper/api/DublinTimeTest.kt"
   "app/src/test/java/com/example/timetablescraper/util/SafePrefsTest.kt"
   "app/src/test/java/com/example/timetablescraper/util/CrashFlagsTest.kt"
 )

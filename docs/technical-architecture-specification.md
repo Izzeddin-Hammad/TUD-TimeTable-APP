@@ -1,7 +1,7 @@
 # TUD-TimeTable-APP — Technical Architecture & Feature Specification
 
 **Codebase:** `com.example.timetablescraper`  
-**Version:** 1.16 (target SDK 36, min SDK 26)  
+**Version:** 2.0 (target SDK 36, min SDK 26)  
 **App Name:** TimeTable  
 **Repository:** `Izzeddin-Hammad/TUD-TimeTable-APP`
 

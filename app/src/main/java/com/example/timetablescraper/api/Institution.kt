@@ -19,12 +19,6 @@ data class Institution(
     override val userAgent: String = UPSTREAM_USER_AGENT
 ) : InstitutionConfiguration {
 
-    @Deprecated(
-        message = "Use apiBaseUrl instead of apiBase",
-        replaceWith = ReplaceWith("apiBaseUrl")
-    )
-    val apiBase: String get() = apiBaseUrl
-
     companion object {
         val TU_DUBLIN = Institution(
             name = "TU Dublin",

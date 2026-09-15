@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -36,6 +37,29 @@ interface TimetableDao {
         WHERE courseIdentity = :courseIdentity AND weekStart = :weekStart
     """)
     suspend fun deleteForWeek(courseIdentity: String, weekStart: String)
+
+    /**
+     * Replace a whole week's rows in a single transaction.
+     *
+     * Room wraps the delete and the insert in one transaction, so they cannot interleave with
+     * another writer's, and a cancellation part-way through rolls the whole thing back rather than
+     * leaving the week empty.
+     *
+     * This matters because two writers legitimately replace the *same* current week: the foreground
+     * load and the WorkManager sync. As two independent calls (`deleteForWeek` then `insertAll`)
+     * they could interleave into duplicate rows — `insertAll` appends, it does not merge — or be
+     * interrupted between them, leaving a student with no cached timetable for a week they had
+     * already fetched.
+     */
+    @Transaction
+    suspend fun replaceWeek(
+        courseIdentity: String,
+        weekStart: String,
+        events: List<CachedEventEntity>,
+    ) {
+        deleteForWeek(courseIdentity, weekStart)
+        insertAll(events)
+    }
 
     /** Get the newest fetchedAt timestamp for a course+week, or null if not cached. */
     @Query("""

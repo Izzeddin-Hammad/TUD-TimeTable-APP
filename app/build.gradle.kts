@@ -1,7 +1,31 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+}
+
+// ── Release signing ──────────────────────────────────────────────────────────
+// A `keystore.properties` file at the repo root (git-ignored) supplies the project's own signing
+// key. Without it we fall back to the DEBUG keystore, which is what this project has always been
+// distributed with (every `releases/*.apk` to date is debug-signed). That fallback matters twice
+// over: it keeps `assembleRelease` producing an *installable* APK — it used to emit an unsigned
+// one that Android refuses — and it keeps in-place updates working, because switching to a new key
+// makes Android refuse to install over an existing debug-signed install.
+//
+// Create one with (and then keep the .jks safe — losing it means no future in-place updates):
+//   keytool -genkeypair -v -keystore release.jks -alias timetable \
+//     -keyalg RSA -keysize 2048 -validity 10000
+// and write keystore.properties:
+//   storeFile=release.jks
+//   storePassword=…
+//   keyAlias=timetable
+//   keyPassword=…
+val keystorePropsFile = rootProject.file("keystore.properties")
+val hasReleaseKeystore = keystorePropsFile.exists()
+val keystoreProps = Properties().apply {
+    if (hasReleaseKeystore) keystorePropsFile.inputStream().use { load(it) }
 }
 
 android {
@@ -16,15 +40,36 @@ android {
         applicationId = "com.example.timetablescraper"
         minSdk = 26
         targetSdk = 36
-        versionCode = 29
-        versionName = "1.29"
+        versionCode = 30
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Signed, always: with the project key when one is configured, otherwise with the
+            // debug key so the APK stays installable (and updateable in place). See above.
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+            // R8 + resource shrinking. Room and WorkManager ship their own consumer rules for the
+            // classes they look up by name; proguard-rules.pro adds what they do not cover.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

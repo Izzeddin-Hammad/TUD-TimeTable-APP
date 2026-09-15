@@ -38,16 +38,23 @@ class RequestDebouncer {
         }
 
         val deferred = CompletableDeferred<Result<T>>()
-        // Remove key when deferred completes so new calls start fresh
-        deferred.invokeOnCompletion { inFlight.remove(key) }
+        val published = deferred as CompletableDeferred<Result<*>>
 
-        // Atomic put — only one caller wins
-        val prev = inFlight.putIfAbsent(key, deferred as CompletableDeferred<Result<*>>)
+        // Atomic put — only one caller wins. Publish *before* registering the completion callback,
+        // because the losing caller's deferred is never in the map and so must not register a
+        // callback that removes the key: that used to fire on `deferred.cancel()` and evict the
+        // *winner's* still-running entry, letting a third concurrent caller miss the fast path and
+        // issue a duplicate request — defeating the de-duplication this class exists to provide.
+        val prev = inFlight.putIfAbsent(key, published)
         if (prev != null) {
-            // Another coroutine won the race → await its result
-            deferred.cancel()  // clean up our unused deferred
+            // Another coroutine won the race → await its result. Our own deferred was never
+            // published, so there is nothing to clean up and nothing to cancel.
             return (prev.await().getOrThrow() as T)
         }
+
+        // Remove the key when our deferred completes — but only while it still points at this
+        // deferred, so a later request for the same key is never evicted by us.
+        deferred.invokeOnCompletion { inFlight.remove(key, published) }
 
         try {
             val value = block()

@@ -29,8 +29,11 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.*
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
@@ -79,6 +82,16 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+/**
+ * Height of the strip above the timetable that carries status messages — the cache source, the
+ * "timetable changes" prompt, the pull-to-refresh cooldown.
+ *
+ * The strip is laid out whether or not it has anything to say. It used to appear and disappear
+ * inline, so losing a message (the cache banner, when a Semester-2 week turns out to have no
+ * classes) bounced the week picker and the day tabs up and down under the student's finger.
+ */
+private val NOTIFICATION_SLOT_HEIGHT = 48.dp
 
 // ── Colour palette for event types ──────────────────────────────────────────
 
@@ -239,11 +252,14 @@ fun TimetableScreen(
         }
     }
 
-    // Remember selected group so returning to this course restores it
+    // Remember selected group so returning to this course restores it.
+    //
+    // Nothing is logged here on purpose: the course identity *is* the student's programme, and the
+    // privacy policy promises that nothing about them is collected — logcat counts, because it is
+    // readable from a bug report or over adb.
     LaunchedEffect(selectedGroup) {
         if (selectedGroup != null) {
             SyncPreferences.setLastGroup(context, selectedCourse.identity, selectedGroup!!)
-            android.util.Log.d("Timetable", "Group saved: course=${selectedCourse.identity} group=$selectedGroup")
         }
     }
 
@@ -580,38 +596,29 @@ fun TimetableScreen(
                 .padding(padding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // ── Cache-status indicator ───────────────────────────────────
-            if (cacheSource != null && events.isNotEmpty()) {
-                CacheStatusBar(source = cacheSource!!)
-            }
-
-            // ── Pending timetable changes (tap to review) ─────────────────
-            if (showChangesBanner && timetableChanges.isNotEmpty()) {
-                TimetableChangesBanner(
-                    count = timetableChanges.size,
-                    onReview = { showChangesDialog = true },
-                    onDismiss = {
-                        showChangesBanner = false
-                        timetableChanges = emptyList()
-                    },
-                )
-            }
-
-            // ── Pull-to-refresh rate-limit message ────────────────────────
-            if (showRefreshRateLimited) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = IosTheme.colors.purple.copy(alpha = 0.12f)
+                // ── Notification slot ──────────────────────────────────────
+                // Fixed height, always laid out: see NOTIFICATION_SLOT_HEIGHT. One message shows
+                // at a time, most actionable first.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(NOTIFICATION_SLOT_HEIGHT),
+                    contentAlignment = Alignment.CenterStart,
                 ) {
-                    Text(
-                        text = "⏳ Timetable was refreshed in the last 24 hours. Try again later.",
-                        style = IosType.caption1,
-                        color = IosTheme.colors.purple,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
+                    when {
+                        showChangesBanner && timetableChanges.isNotEmpty() -> TimetableChangesBanner(
+                            count = timetableChanges.size,
+                            onReview = { showChangesDialog = true },
+                            onDismiss = {
+                                showChangesBanner = false
+                                timetableChanges = emptyList()
+                            },
+                        )
+                        showRefreshRateLimited -> RefreshRateLimitedBar()
+                        cacheSource != null -> CacheStatusBar(source = cacheSource!!)
+                        else -> Unit
+                    }
                 }
-            }
 
             // (The Box and LinearProgressIndicator for the scanning weeks have been deleted)
             // You can leave a blank space here or just let the rest of your UI continue below.
@@ -825,7 +832,14 @@ fun TimetableScreen(
             val availableGroups = remember(events) {
                 GroupMatcher.availableGroups(events.map { it.groupLabel.ifBlank { it.group } })
             }
-            if (availableGroups.size > 1) {
+            // Animated rather than a bare `if`: switching semester changes how many cohorts the
+            // week has, and having ~170 px of filter appear or vanish in one frame is the same
+            // complaint as the status strip above — the timetable jumps under the finger.
+            AnimatedVisibility(
+                visible = availableGroups.size > 1,
+                enter = expandVertically(animationSpec = Motion.gentle()),
+                exit = shrinkVertically(animationSpec = Motion.gentle()),
+            ) {
                 ExposedDropdownMenuBox(
                     expanded = groupMenuExpanded,
                     onExpandedChange = { groupMenuExpanded = it },
@@ -1029,9 +1043,9 @@ private fun TimetableChangesBanner(
     onDismiss: () -> Unit,
 ) {
     val colors = IosTheme.colors
-    Surface(modifier = Modifier.fillMaxWidth(), color = colors.accentWash) {
+    Surface(modifier = Modifier.fillMaxSize(), color = colors.accentWash) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+            modifier = Modifier.fillMaxSize().padding(start = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -1041,21 +1055,25 @@ private fun TimetableChangesBanner(
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(10.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onReview() }
-                    .padding(vertical = 8.dp)
+            Text(
+                text = if (count == 1) "1 timetable change" else "$count timetable changes",
+                style = IosType.footnote,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = onReview,
+                contentPadding = PaddingValues(horizontal = 12.dp),
             ) {
-                Text(
-                    if (count == 1) "1 timetable change" else "$count timetable changes",
-                    style = IosType.footnote,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.label,
-                )
-                Text("Tap to review", style = IosType.caption1, color = colors.secondaryLabel)
+                Text("Review", style = IosType.footnote, fontWeight = FontWeight.SemiBold)
             }
-            IconButton(onClick = onDismiss) {
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(NOTIFICATION_SLOT_HEIGHT),
+            ) {
                 Icon(
                     Icons.Filled.Close,
                     contentDescription = "Dismiss",
@@ -1221,29 +1239,47 @@ private fun detailValue(detail: TimetableChangeDetail): String = when {
 private fun CacheStatusBar(source: CacheSource) {
     val (text, color) = when (source) {
         CacheSource.CACHE_FRESH -> "📦 Loaded from cache" to IosTheme.colors.accent
-        CacheSource.CACHE_STALE -> "⚠️ Offline / Cached Mode — data may be outdated" to IosTheme.colors.red
+        CacheSource.CACHE_STALE -> "⚠️ Offline — showing the last cached timetable" to IosTheme.colors.red
         CacheSource.NETWORK -> "🌐 Updated from server" to IosTheme.colors.purple
     }
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxSize(),
         color = color.copy(alpha = 0.12f)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 text = text,
                 style = IosType.caption1,
                 color = color,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            if (source == CacheSource.CACHE_STALE) {
-                Text(
-                    text = "Network request failed — showing last cached version. " +
-                            "Your sync interval may still be active.",
-                    style = IosType.caption1,
-                    color = color.copy(alpha = 0.7f)
-                )
-            }
+        }
+    }
+}
+
+/** The pull-to-refresh cooldown, shown in the same reserved strip as the other status messages. */
+@Composable
+private fun RefreshRateLimitedBar() {
+    val color = IosTheme.colors.purple
+    Surface(modifier = Modifier.fillMaxSize(), color = color.copy(alpha = 0.12f)) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "⏳ Refreshed recently — you can refresh again in 24 hours.",
+                style = IosType.caption1,
+                color = color,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -1262,7 +1298,7 @@ private fun EventsContent(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                "No classes on ${days[selectedDayIndex]}",
+                "No classes on ${days.getOrElse(selectedDayIndex) { days.first() }}",
                 style = IosType.body,
                 color = IosTheme.colors.secondaryLabel
             )

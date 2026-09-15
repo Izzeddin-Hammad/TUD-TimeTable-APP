@@ -1,21 +1,21 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
+# R8 configuration for the release build.
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Most of what would need keeping is already covered by the libraries' own consumer rules:
+# androidx.room ships rules for the generated `*_Impl` and the entities the builder looks up by
+# name, androidx.work keeps `ListenableWorker`'s constructor so workers can be instantiated from a
+# WorkRequest, and OkHttp needs none. What is left is below.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Crash reports are read by a student on a recovery screen and pasted into a bug report, so keep
+# the line numbers and the original file names even though R8 renames the classes.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# The Room builder resolves the generated database class by name
+# (`Room.databaseBuilder(…, TimetableDatabase::class.java, …)`), so it must survive shrinking.
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Room generates `*_Impl` companions that the runtime reaches by reflection.
+-keep class * implements androidx.room.RoomDatabase_Impl { *; }
+
+# The app parses upstream JSON with org.json; keep the parser free of missing-class warnings.
+-dontwarn org.json.**

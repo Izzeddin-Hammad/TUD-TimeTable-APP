@@ -1,8 +1,8 @@
 package com.example.timetablescraper
 
 import android.app.Application
-import com.example.timetablescraper.api.InstitutionConfiguration
 import com.example.timetablescraper.api.Institution
+import com.example.timetablescraper.api.InstitutionConfiguration
 import com.example.timetablescraper.api.SyncStrategy
 import com.example.timetablescraper.api.TimetableApiService
 import com.example.timetablescraper.api.TimetableRepository
@@ -30,9 +30,18 @@ class TimetableApplication : Application() {
         Institution.DEFAULT
     }
 
-    /** The API service, configured with the chosen institution config. */
+    /**
+     * The API service. There is deliberately exactly **one** instance app-wide — this is the same
+     * object the screens and the sync worker reach as [TimetableApiService.DEFAULT].
+     *
+     * It used to build a *second* service from the injected config while everything else called the
+     * `DEFAULT` singleton. Each instance constructs its own OkHttp client and its own rate-limit
+     * token bucket, so the documented "5 requests / 10 s" limit was really 10/10 s and the
+     * connection pool was duplicated. Supporting a different institution would need `DEFAULT`'s
+     * lazy initialiser to read [institutionConfig], rather than adding a second instance back here.
+     */
     val apiService: TimetableApiService by lazy {
-        TimetableApiService(config = institutionConfig)
+        TimetableApiService.DEFAULT
     }
 
     /**

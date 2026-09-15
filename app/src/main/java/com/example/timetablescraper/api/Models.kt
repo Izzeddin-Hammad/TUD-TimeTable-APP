@@ -9,6 +9,9 @@ data class SearchRequest(val query: String)
 
 /**
  * A single search result from the server.
+ *
+ * `Serializable` so the screen state that holds it survives an Activity recreation (rotation) via
+ * `rememberSaveable` — a plain `remember` used to drop the student's search and selection.
  */
 @Immutable
 data class SearchResult(
@@ -18,7 +21,7 @@ data class SearchResult(
     val type: String,
     val selection_id: String,
     val timetable_type_id: String
-)
+) : java.io.Serializable
 
 /**
  * Response wrapper for /search/data

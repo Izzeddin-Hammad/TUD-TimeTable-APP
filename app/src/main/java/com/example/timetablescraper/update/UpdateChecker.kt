@@ -37,8 +37,15 @@ object UpdateChecker {
     private val CONTENTS_URL =
         "$GITHUB_API_BASE/repos/$GITHUB_REPO/contents/releases"
 
-    /** Regex to parse version from APK filename: "TimeTable-v1.17-debug.apk" → "v1.17" */
-    private val APK_VERSION_REGEX = Regex("TimeTable-v([\\d.]+)-debug\\.apk")
+    /**
+     * Parses the version out of an APK filename: `TimeTable-v1.17-debug.apk` → `1.17`.
+     *
+     * The build-type suffix is optional and deliberately not restricted to `debug`: the project
+     * shipped debug-signed APKs until v1.29, and a release APK (`…-v2.0-release.apk`, or bare
+     * `…-v2.0.apk`) must be offered to exactly the same users. Pinning this to `-debug` meant the
+     * updater would report "No valid APK files found" the moment a real release was published.
+     */
+    private val APK_VERSION_REGEX = Regex("TimeTable-v([\\d.]+)(?:-[A-Za-z0-9]+)?\\.apk")
 
     /**
      * Whether an APK may be downloaded and handed to the installer.
@@ -73,7 +80,7 @@ object UpdateChecker {
         val remoteVersion: String? = null,
         val downloadUrl: String? = null,
         val errorMessage: String? = null
-    )
+    ) : java.io.Serializable
 
     /**
      * Check for a newer version of the app by listing the `releases/` directory
