@@ -40,8 +40,11 @@ class TimetableDiffTest {
 
     @Test
     fun `zone noise alone is not a change`() {
-        // Regression: '...T09:00:00' vs '...T09:00:00Z' used to produce a REMOVED + ADDED pair.
-        val previous = listOf(ev(start = "2025-10-07T09:00:00", end = "2025-10-07T11:00:00"))
+        // Regression: the same instant written with and without fractional seconds used to produce
+        // a REMOVED + ADDED pair. (A *naive* value is now read as already-local, so it is a
+        // different instant from the same digits in UTC — that is deliberate, and covered in
+        // EventKeyTest.)
+        val previous = listOf(ev(start = "2025-10-07T09:00:00Z", end = "2025-10-07T11:00:00Z"))
         val incoming = listOf(ev(start = "2025-10-07T09:00:00.000Z", end = "2025-10-07T11:00:00.000Z"))
 
         assertTrue(TimetableDiff.diff(previous, incoming).isEmpty())

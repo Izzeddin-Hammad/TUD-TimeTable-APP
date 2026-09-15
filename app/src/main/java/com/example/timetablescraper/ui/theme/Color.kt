@@ -151,7 +151,7 @@ private fun palette(
     groupedBackground = background,
     label = ink,
     secondaryLabel = ink.copy(alpha = 0.66f),
-    tertiaryLabel = ink.copy(alpha = 0.38f),
+    tertiaryLabel = ink.copy(alpha = 0.46f),
     separator = ink.copy(alpha = 0.14f),
     fill = ink.copy(alpha = if (isDark) 0.16f else 0.09f),
     fillStrong = ink.copy(alpha = if (isDark) 0.24f else 0.15f),

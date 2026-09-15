@@ -379,7 +379,7 @@ fun IosSegmentedControl(
             modifier = Modifier
                 .offset(x = thumbOffset)
                 .width(segmentWidth)
-                .height(32.dp)
+                .height(44.dp)
                 .clip(RoundedCornerShape(7.dp))
                 .background(colors.secondarySystemBackground)
                 .border(
@@ -393,7 +393,7 @@ fun IosSegmentedControl(
                 Box(
                     modifier = Modifier
                         .width(segmentWidth)
-                        .height(32.dp)
+                        .height(44.dp)
                         .clip(RoundedCornerShape(7.dp))
                         .iosTappable(pressedScale = 0.96f) {
                             if (index != selectedIndex) hapticTick()
@@ -533,19 +533,27 @@ fun IosSearchField(
             )
         }
         if (value.isNotEmpty()) {
+            // 44dp touch target around a 28dp visual: the glyph was the whole hit area before,
+            // which is well under the 48dp minimum and easy to miss one-handed.
             Box(
                 modifier = Modifier
-                    .size(28.dp)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .size(44.dp)
                     .iosTappable(pressedScale = 0.9f) { onValueChange("") },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Cancel,
-                    contentDescription = "Clear",
-                    tint = colors.tertiaryLabel,
-                    modifier = Modifier.size(18.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Cancel,
+                        contentDescription = "Clear",
+                        tint = colors.secondaryLabel,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         } else {
             trailing?.invoke()

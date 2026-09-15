@@ -44,9 +44,15 @@ A native Android timetable app that fetches your TU Dublin university schedule d
 - **Sync Notification System** — Background sync completions post notifications with success/fail status and timestamp
 - **Client-Side Rate Limiting** — Token Bucket OkHttp interceptor (5 req/10s); returns synthetic 429 to trigger fail-safe fallback
 
+### Privacy
+- **Nothing leaves the device** except the timetable request to TU Dublin and the update check to GitHub — both HTTPS, neither carrying an account or a device identifier. Android backup is off
+- **Erase all app data** (Settings → Privacy) deletes everything the app has stored, in one tap. You can also switch off the automatic update check there
+- **A downloaded update is verified against the app's signing key before it is installed**
+- Full detail, including every stored item and every permission: [PRIVACY.md](PRIVACY.md)
+
 ### Resilience & Safety
 - **Global Crash Handler** — Uncaught exceptions are persisted and recovered on next launch via a dedicated Fatal Error recovery screen
-- **Fatal Error Screen** — Shows "Something went wrong" with "Clear Cache & Restart" (clears the timetable cache only — your saved courses and pinned course are kept) and "Try Again" buttons
+- **Fatal Error Screen** — Shows "Something went wrong" with "Clear Cache & Restart" and "Try Again" buttons. It clears the timetable cache only — your saved courses and pinned course are kept — *unless the database itself is what is broken, in which case it has to delete the database files to escape a crash loop, and those bookmarks go with it
 - **Coroutine Exception Handler** — Unhandled coroutine crashes are caught at the root scope and persisted for next-launch recovery
 - **Fail-Safe Fallback** — HTTP 429/500 and network errors fall back to stale cache with an "⚠️ Offline / Cached Mode" banner
 - **Request Minimization** — Singleton request debouncer deduplicates concurrent API calls to the same URL
@@ -157,7 +163,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v2.0)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.0-release.apk)
+[**Download latest APK (v2.1)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.1-release.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
@@ -167,6 +173,16 @@ Network calls are completely blocked if the app is opened while the cache is sti
 > refuses to install a differently-signed package over an existing one. Uninstalling clears the
 > local data (pinned course, bookmarks, settings) — re-pin your course once and you are set. Every
 > update *after* this one installs in place.
+
+### What's new in v2.1
+
+Privacy hardening, driven by three audits. Notes: [`releases/TimeTable-v2.1.md`](releases/TimeTable-v2.1.md).
+
+- **Erase everything from inside the app** — Settings → Privacy → Erase all app data wipes the cache, saved courses, search history, settings, theme and crash record, then restarts. Several of those had no in-app delete at all before
+- **A downloaded update is verified before it is installed** — the app checks the APK is signed with its own key and refuses anything else
+- **The automatic update check can be switched off** (Settings → Privacy), and the `WRITE_EXTERNAL_STORAGE` permission — declared but never used — is gone
+- **PRIVACY.md now matches the code**, having previously contradicted itself about what is stored, named the wrong GitHub API, and omitted the update download and the install permission
+- Plus: the event key is the local wall clock rather than the raw UTC digits, and the sub-48 dp touch targets are fixed
 
 ### What's new in v2.0
 
@@ -193,7 +209,6 @@ Fixes three timetable bugs and rebuilds the change notification. Notes: [`releas
 - **"Semester 2" always switches.** For a course whose Semester 2 is not published yet, every week in that semester is "empty", and the *Hide empty weeks* option emptied the list — so tapping Semester 2 silently left you on the other semester's week. It now lands in the chosen semester and says "No classes this week"
 - **The group picker offers cohorts, not combinations.** A shared lecture belongs to several cohorts at once, and the picker offered the whole list as one option — reading as "TU859/Y1/G1 + TU859/Y1/G2". Each cohort is now its own option, while the shared class still appears under each of them
 - **"Timetable changes" is readable.** The modal that opened itself and printed a semicolon-joined sentence per change is gone: a compact, dismissible banner offers a review, and each class is one row that expands to the fields that changed, in local time
-
 ### What's new in v1.27
 
 Fixes a launch crash that affected every build from v1.24 to v1.26. Notes: [`releases/TimeTable-v1.27.md`](releases/TimeTable-v1.27.md).

@@ -1,5 +1,6 @@
 package com.example.timetablescraper.api
 
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
@@ -17,10 +18,12 @@ import java.util.Locale
  * Any divergence between these produces student-visible lies: a change that never happened, or
  * a missing class. So the key lives in exactly one place now, and is pure and unit-testable.
  *
- * **Wall-clock, not instant.** A timetable session is defined in the institution's local time:
- * a 09:00 lecture is 09:00 regardless of whether the upstream serialises it as `09:00Z` or
- * `09:00+01:00`. Normalising to an *instant* would silently shift sessions by an hour across a
- * DST boundary, so the key deliberately keeps the wall clock and only strips the zone noise.
+ * **Local wall clock, not the raw digits.** A timetable session is defined in the institution's
+ * local time, so the key is the session's *Dublin* wall clock. Upstream serialises in UTC, which
+ * means one fixed 09:00 lecture is written `08:00Z` while Irish Summer Time is in force and `09:00Z`
+ * once it is not — reading the raw digits made that same class look like a *moved* one at every DST
+ * boundary. Projecting first keeps the key stable across the boundary, and two values that denote
+ * the same instant now compare equal whatever offset they were written with.
  */
 object EventKey {
 
@@ -39,10 +42,25 @@ object EventKey {
      * "2025-10-07T10:00:00+01:00"   -> "2025-10-07t10:00:00"   (a genuinely different slot)
      * ```
      */
+    /** Canonical local form: `2025-10-07T10:00:00` (lower-cased on the way out). */
+    private val LOCAL_WALL_CLOCK: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT)
+
     fun wallClock(raw: String?): String {
         val s = raw?.trim().orEmpty()
         if (s.isEmpty()) return ""
 
+        // Project into the institution's zone when the value carries an offset to project from.
+        //
+        // Upstream sends every session in UTC, so a fixed *local* lecture is serialised an hour
+        // earlier through summer time: 09:00 Dublin is 08:00Z in September and 09:00Z in December.
+        // Reading the raw digits made that same lecture look like a moved class every time the
+        // clocks changed, and it made the change feed report a time change that never happened.
+        // Comparing the local wall clock instead is stable across the boundary — and two values
+        // that denote the same instant now compare equal whatever offset they were written with.
+        DublinTime.toLocal(s)?.let { return it.format(LOCAL_WALL_CLOCK).lowercase(Locale.ROOT) }
+
+        // No offset to project from: a naive value is already local, so read it literally.
         // Drop fractional seconds first: "…:00.000Z" -> "…:00"
         var t = s.substringBefore('.')
 

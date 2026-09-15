@@ -245,10 +245,15 @@ private fun MainApp(
     var updateResult by rememberSaveable { mutableStateOf<UpdateChecker.UpdateResult?>(null) }
     var updateCheckDone by rememberSaveable { mutableStateOf(false) }
 
-    // Check for updates once on launch
+    // Check for updates once on launch — unless the student has switched it off. That toggle is the
+    // only control they have over the app contacting a third party (GitHub) on its own, which
+    // discloses their IP address and when they opened the app.
     LaunchedEffect(Unit) {
         if (updateCheckDone) return@LaunchedEffect
         updateCheckDone = true
+        if (!runCatching { SyncPreferences.isAutoUpdateCheckEnabled(context) }.getOrDefault(true)) {
+            return@LaunchedEffect
+        }
         try {
             val result = UpdateChecker.checkForUpdate()
             updateResult = result

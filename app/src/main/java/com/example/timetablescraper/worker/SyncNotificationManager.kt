@@ -97,6 +97,9 @@ object SyncNotificationManager {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
+            // Hidden on a secure lock screen: a sync completion is nobody else's business, and the
+            // notification is posted whether or not the phone is in someone's hand.
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setSmallIcon(R.drawable.ic_notification_sync)
             .setContentIntent(pendingIntent)

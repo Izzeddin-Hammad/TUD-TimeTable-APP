@@ -48,7 +48,6 @@ import com.example.timetablescraper.ui.theme.IosType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * Full-screen fatal error recovery composable.
@@ -250,14 +249,11 @@ fun FatalErrorScreen(
  * Deletes the cache database's files **without** opening Room.
  *
  * The recovery screen has to be able to clear a database that cannot be *opened* — and opening it
- * is exactly what fails, so going through the repository cannot work. Deleting the file (plus its
- * `-wal`/`-shm` companions) succeeds for a corrupt file or an invalid schema/migration state, and
- * the next launch then builds a fresh database. Without this the screen is an inescapable loop:
- * the reset would fail on the same broken database it is trying to clear.
+ * is exactly what fails, so going through the repository cannot work. Deleting the files succeeds
+ * for a corrupt file or an invalid schema/migration state, and the next launch then builds a fresh
+ * database. Without this the screen is an inescapable loop: the reset would fail on the same broken
+ * database it is trying to clear.
  */
 private fun deleteDatabaseFiles(context: Context) {
-    val databasePath = context.getDatabasePath(TimetableDatabase.DB_NAME).path
-    listOf(databasePath, "$databasePath-wal", "$databasePath-shm").forEach { candidate ->
-        runCatching { File(candidate).delete() }
-    }
+    TimetableDatabase.deleteFiles(context)
 }

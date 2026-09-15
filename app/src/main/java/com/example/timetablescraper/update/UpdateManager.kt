@@ -92,6 +92,16 @@ object UpdateManager {
      * @return `true` if the install intent was successfully launched.
      */
     fun installApk(context: Context, apkFile: File): Boolean {
+        // Refuse anything that is not this app's own build. The download URL is only allow-listed
+        // by *host* at check time and DownloadManager follows whatever redirects it is handed, so
+        // nothing cryptographically bound the file on disk to the release we published. Android
+        // would reject a differently-signed update anyway; checking here means the app never hands
+        // a foreign binary to the system installer, and the student gets a clear message instead of
+        // an opaque install failure.
+        if (!isSignedBySameKeyAsInstalled(context, apkFile)) {
+            Log.e(TAG, "Refusing to install ${apkFile.name}: signer does not match this app")
+            return false
+        }
         return try {
             val authority = "${context.packageName}.fileprovider"
             val apkUri: Uri = FileProvider.getUriForFile(
@@ -114,6 +124,49 @@ object UpdateManager {
             false
         }
     }
+
+    /**
+     * Whether [apk] is signed by the same key as the installed app, and is the same package.
+     *
+     * Compares the SHA-256 of the first signing certificate rather than the raw byte array, so a
+     * certificate re-encoding cannot produce a false negative.
+     */
+    fun isSignedBySameKeyAsInstalled(context: Context, apk: File): Boolean {
+        return try {
+            val pm = context.packageManager
+            val archive = pm.getPackageArchiveInfo(apk.absolutePath, signatureFlags)
+                ?: return false
+            if (archive.packageName != context.packageName) return false
+
+            fun certsOf(info: android.content.pm.PackageInfo): Set<String> =
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    val signers = info.signingInfo?.apkContentsSigners ?: return emptySet()
+                    signers.map { sha256(it.toByteArray()) }.toSet()
+                } else {
+                    @Suppress("DEPRECATION")
+                    info.signatures?.map { sha256(it.toByteArray()) }?.toSet() ?: emptySet()
+                }
+
+            val archiveCerts = certsOf(archive)
+            val installedCerts = certsOf(pm.getPackageInfo(context.packageName, signatureFlags))
+            archiveCerts.isNotEmpty() && archiveCerts == installedCerts
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not verify the downloaded APK's signature", e)
+            false
+        }
+    }
+
+    private fun sha256(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+
+    @Suppress("DEPRECATION")
+    private val signatureFlags: Int =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            android.content.pm.PackageManager.GET_SIGNATURES
+        }
 
     /**
      * Resolve the downloaded APK [File] from the app's external files directory.

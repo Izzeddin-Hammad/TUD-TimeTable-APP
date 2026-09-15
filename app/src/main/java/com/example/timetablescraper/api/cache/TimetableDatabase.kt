@@ -23,6 +23,20 @@ abstract class TimetableDatabase : RoomDatabase() {
         /** The on-disk database file name. Public so recovery can delete it without opening it. */
         const val DB_NAME = "timetable_cache.db"
 
+        /**
+         * Delete the database's files **without opening it**.
+         *
+         * Deleting works for a corrupt file or an invalid schema/migration state, which is exactly
+         * when opening it would fail — used both by the crash-recovery screen (to escape a database
+         * it cannot clear through Room) and by Settings → Erase all app data.
+         */
+        fun deleteFiles(context: Context) {
+            val base = context.getDatabasePath(DB_NAME).path
+            listOf(base, "$base-wal", "$base-shm").forEach { candidate ->
+                runCatching { java.io.File(candidate).delete() }
+            }
+        }
+
         @Volatile
         private var INSTANCE: TimetableDatabase? = null
 

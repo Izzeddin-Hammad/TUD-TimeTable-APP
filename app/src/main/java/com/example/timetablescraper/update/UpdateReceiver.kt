@@ -1,6 +1,7 @@
 package com.example.timetablescraper.update
 
 import android.app.DownloadManager
+import android.widget.Toast
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -47,12 +48,19 @@ class UpdateReceiver : BroadcastReceiver() {
 
                 when (status) {
                     DownloadManager.STATUS_SUCCESSFUL -> {
-                        Log.d(TAG, "APK download successful — launching installer")
                         val apkFile = UpdateManager.getApkFile(context)
-                        if (apkFile.exists()) {
-                            UpdateManager.installApk(context, apkFile)
+                        if (apkFile.exists() && UpdateManager.installApk(context, apkFile)) {
+                            Log.d(TAG, "APK download successful — installer launched")
                         } else {
-                            Log.e(TAG, "APK file not found at ${apkFile.absolutePath}")
+                            // Either the file vanished, or it is not signed by this app's key (see
+                            // UpdateManager.isSignedBySameKeyAsInstalled). Say so, rather than
+                            // downloading and then silently doing nothing.
+                            Log.e(TAG, "Update not installed: missing or unverified APK")
+                            Toast.makeText(
+                                context,
+                                "Update could not be verified. Install it manually from the releases page.",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
                     }
                     DownloadManager.STATUS_FAILED -> {

@@ -31,27 +31,38 @@ class EventKeyTest {
     // ── wallClock normalisation ────────────────────────────────────────────────
 
     @Test
-    fun `wall clock strips the zone designator`() {
-        assertEquals("2025-10-07t09:00:00", EventKey.wallClock("2025-10-07T09:00:00Z"))
-        assertEquals("2025-10-07t09:00:00", EventKey.wallClock("2025-10-07T09:00:00z"))
+    fun `wall clock projects an offset value into the institution's zone`() {
+        // 09:00Z is 10:00 in Irish Summer Time (2025-10-07 is before the clocks go back).
+        assertEquals("2025-10-07t10:00:00", EventKey.wallClock("2025-10-07T09:00:00Z"))
+        assertEquals("2025-10-07t10:00:00", EventKey.wallClock("2025-10-07T09:00:00z"))
     }
 
     @Test
     fun `wall clock strips fractional seconds`() {
-        assertEquals("2025-10-07t09:00:00", EventKey.wallClock("2025-10-07T09:00:00.000Z"))
-        assertEquals("2025-10-07t09:00:00", EventKey.wallClock("2025-10-07T09:00:00.123456Z"))
+        assertEquals("2025-10-07t10:00:00", EventKey.wallClock("2025-10-07T09:00:00.000Z"))
+        assertEquals("2025-10-07t10:00:00", EventKey.wallClock("2025-10-07T09:00:00.123456Z"))
     }
 
     @Test
-    fun `wall clock strips a numeric offset but keeps the local time`() {
-        // A 09:00 session is 09:00 in the institution's timezone whichever offset is written.
+    fun `wall clock projects by instant, not by the digits written`() {
+        // 09:00+01:00 already *is* 09:00 in Dublin; 09:00-05:00 is 15:00 there. Reading the digits
+        // and ignoring the offset — what this used to do — both mis-times the session and made two
+        // different instants compare equal.
         assertEquals("2025-10-07t09:00:00", EventKey.wallClock("2025-10-07T09:00:00+01:00"))
-        assertEquals("2025-10-07t09:00:00", EventKey.wallClock("2025-10-07T09:00:00-05:00"))
+        assertEquals("2025-10-07t15:00:00", EventKey.wallClock("2025-10-07T09:00:00-05:00"))
     }
 
     @Test
-    fun `wall clock never strips the date separators`() {
-        // The '-' inside the date must survive: only the time portion is stripped.
+    fun `the key is the local clock the season's UTC digits project to`() {
+        // One 09:00 Dublin lecture, serialised in UTC through the year: 08:00Z in August (IST) and
+        // 09:00Z in December (GMT). The *key* is the local time in both cases; the UTC digits are
+        // an artefact of when the fetch happened, and must not be what identifies the class.
+        assertEquals("2026-08-12t09:00:00", EventKey.wallClock("2026-08-12T08:00:00Z"))
+        assertEquals("2026-12-09t09:00:00", EventKey.wallClock("2026-12-09T09:00:00Z"))
+    }
+
+    @Test
+    fun `wall clock reads a naive value literally as already local`() {
         assertEquals("2025-10-07t09:00:00", EventKey.wallClock("2025-10-07T09:00:00"))
         assertTrue(EventKey.wallClock("2025-10-07T09:00:00Z").startsWith("2025-10-07"))
     }
@@ -66,7 +77,7 @@ class EventKeyTest {
 
     @Test
     fun `timeOfDay extracts HH mm`() {
-        assertEquals("09:00", EventKey.timeOfDay("2025-10-07T09:00:00Z"))
+        assertEquals("10:00", EventKey.timeOfDay("2025-10-07T09:00:00Z"))
         assertEquals("23:45", EventKey.timeOfDay("2025-10-07T23:45:00+01:00"))
         assertEquals("??:??", EventKey.timeOfDay(""))
         assertEquals("??:??", EventKey.timeOfDay("2025-10-07"))
@@ -75,15 +86,16 @@ class EventKeyTest {
     // ── sessionKey ─────────────────────────────────────────────────────────────
 
     @Test
-    fun `the same session written with different zone noise shares one key`() {
+    fun `the same instant written with different zone noise shares one key`() {
         // Regression: '...T09:00:00' vs '...T09:00:00Z' used to look like two different classes,
         // which produced a phantom "class removed / new class" alert pair on every refresh.
-        val withZ = event(start = "2025-10-07T09:00:00Z", end = "2025-10-07T11:00:00Z")
-        val withoutZ = event(start = "2025-10-07T09:00:00", end = "2025-10-07T11:00:00")
+        val zulu = event(start = "2025-10-07T09:00:00Z", end = "2025-10-07T11:00:00Z")
         val withMillis = event(start = "2025-10-07T09:00:00.000Z", end = "2025-10-07T11:00:00.000Z")
+        // …and the same instant written with a different offset is the same session too.
+        val withOffset = event(start = "2025-10-07T10:00:00+01:00", end = "2025-10-07T12:00:00+01:00")
 
-        assertEquals(EventKey.sessionKey(withZ), EventKey.sessionKey(withoutZ))
-        assertEquals(EventKey.sessionKey(withZ), EventKey.sessionKey(withMillis))
+        assertEquals(EventKey.sessionKey(zulu), EventKey.sessionKey(withMillis))
+        assertEquals(EventKey.sessionKey(zulu), EventKey.sessionKey(withOffset))
     }
 
     @Test

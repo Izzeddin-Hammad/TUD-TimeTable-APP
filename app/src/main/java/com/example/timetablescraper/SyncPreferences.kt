@@ -336,6 +336,38 @@ object SyncPreferences {
         prefs(context).edit().putFloat(KEY_CUSTOM_SATURATION, saturation.coerceIn(0f, 1f)).apply()
     }
 
+    // ── Update check ─────────────────────────────────────────────────
+
+    private const val KEY_AUTO_UPDATE_CHECK = "auto_update_check"
+
+    /**
+     * Whether the app may contact GitHub on its own to look for a new release.
+     *
+     * On by default (that is how updates arrive), but the check is an outbound request to a third
+     * party that discloses the device's IP address and when the app was opened — so it has to be
+     * something the student can switch off. The manual button in Settings keeps working either way.
+     */
+    fun isAutoUpdateCheckEnabled(context: Context): Boolean =
+        SafePrefs.boolean(prefs(context).all, KEY_AUTO_UPDATE_CHECK, true)
+
+    fun setAutoUpdateCheckEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_AUTO_UPDATE_CHECK, enabled).apply()
+    }
+
+    // ── Erase everything ─────────────────────────────────────────────
+
+    /**
+     * Wipe every preference this app has written.
+     *
+     * Used only by the in-app "Erase all app data". "Zero data collection" is only an honest claim
+     * if the student can remove what does exist, and several keys — the theme and custom hue, the
+     * anchor weeks, the cached-week markers, the saved update download id, the crash record — had
+     * no in-app delete at all before this.
+     */
+    fun clearAllPreferences(context: Context) {
+        runCatching { prefs(context).edit().clear().apply() }
+    }
+
     // ── Full-year week classification cache ─────────────────────────
 
     private const val KEY_ACTIVE_WEEKS_PREFIX = "active_weeks_"

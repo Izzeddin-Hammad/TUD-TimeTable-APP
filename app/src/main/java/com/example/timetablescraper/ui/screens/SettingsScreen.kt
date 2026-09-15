@@ -29,6 +29,7 @@ import com.example.timetablescraper.api.TimetableUtils
 import com.example.timetablescraper.ui.theme.AppTheme
 import com.example.timetablescraper.ui.theme.IosTheme
 import com.example.timetablescraper.ui.theme.IosType
+import com.example.timetablescraper.util.LocalData
 import java.time.LocalDate
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.*
@@ -87,6 +88,10 @@ fun SettingsScreen(
     var cacheCoursesCount by remember { mutableStateOf(0) }
     var newestCacheTime by remember { mutableStateOf<Long?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showEraseConfirm by remember { mutableStateOf(false) }
+    var autoUpdateCheck by remember {
+        mutableStateOf(SyncPreferences.isAutoUpdateCheckEnabled(context))
+    }
     var savedCourses by remember { mutableStateOf<List<SavedCourseEntity>>(emptyList()) }
     var cachedCourseIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var cachedCourseNames by remember { mutableStateOf<List<com.example.timetablescraper.api.cache.TimetableDao.CourseNamePair>>(emptyList()) }
@@ -797,6 +802,70 @@ fun SettingsScreen(
             }
 
             // ── Check for updates ───────────────────────────────────────
+            // ── Privacy ───────────────────────────────────────────────
+            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Privacy",
+                        style = IosType.headline,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Everything the app stores stays on this device — the cached timetable, your " +
+                            "saved courses and search history. Nothing is sent anywhere except the " +
+                            "timetable request to TU Dublin, and the update check below.",
+                        style = IosType.footnote,
+                        color = IosTheme.colors.secondaryLabel
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Check for updates automatically",
+                                style = IosType.body,
+                                color = IosTheme.colors.label
+                            )
+                            Text(
+                                "Off means the app never contacts GitHub on its own; you can still " +
+                                    "check from this screen.",
+                                style = IosType.footnote,
+                                color = IosTheme.colors.secondaryLabel
+                            )
+                        }
+                        Switch(
+                            checked = autoUpdateCheck,
+                            onCheckedChange = { enabled ->
+                                autoUpdateCheck = enabled
+                                SyncPreferences.setAutoUpdateCheckEnabled(context, enabled)
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { showEraseConfirm = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = IosTheme.colors.red
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteForever,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Erase all app data")
+                    }
+                }
+            }
+
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -902,6 +971,52 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // ── Erase-everything confirmation dialog ───────────────────────────
+    if (showEraseConfirm) {
+        AlertDialog(
+            onDismissRequest = { showEraseConfirm = false },
+            title = { Text("Erase all app data?") },
+            text = {
+                Text(
+                    "This deletes everything the app has stored on this device: the cached " +
+                        "timetable, your saved and pinned courses, search history, settings and the " +
+                        "crash record. It cannot be undone, and the app will restart."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showEraseConfirm = false
+                        LocalData.eraseEverything(context)
+                        // Restart into a genuinely fresh state: the in-memory screen state (the
+                        // pinned course, the search results) would otherwise outlive the data it
+                        // was built from.
+                        val intent = context.packageManager
+                            .getLaunchIntentForPackage(context.packageName)
+                        if (intent != null) {
+                            intent.addFlags(
+                                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            )
+                            (context as? android.app.Activity)?.finishAffinity()
+                            context.startActivity(intent)
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = IosTheme.colors.red
+                    )
+                ) {
+                    Text("Erase")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEraseConfirm = false }) {
                     Text("Cancel")
                 }
             }
