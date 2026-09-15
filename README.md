@@ -163,7 +163,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v2.3)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.3-release.apk)
+[**Download latest APK (v2.4)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.4-release.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
@@ -174,95 +174,23 @@ Network calls are completely blocked if the app is opened while the cache is sti
 > local data (pinned course, bookmarks, settings) — re-pin your course once and you are set. Every
 > update *after* this one installs in place.
 
-### What's new in v2.3
 
-Twenty courses drawn at random from the whole TU Dublin timetable, each fetched from the live API and checked end to end. Notes: [`releases/TimeTable-v2.3.md`](releases/TimeTable-v2.3.md).
+## Releases
 
-- **A room could read `"null"`** — upstream sends a JSON null for some sessions and it was rendered literally
-- **Two name shapes are in use**, and the parser assumed only one, so some sessions showed `SPEC 9270 — SPEC 9270(20253C) Lab support` instead of `SPEC 9270 — Machine Learning`
-- Both fixed, both covered by instrumented tests, and the sweep also confirmed how much **Saturday teaching** there is (one course has 35 weekend sessions)
+Each release has its own notes under [`releases/`](releases/); the APK above is always the latest.
+Every release from v2.0 is a signed release build.
 
-### What's new in v2.2
+| Version | What it was |
+|---|---|
+| [v2.4](releases/TimeTable-v2.4.md) | The Custom theme sliders no longer write to preferences on every drag frame; the README's per-release sections moved here, and pre-v2.0 releases were unpublished |
+| [v2.3](releases/TimeTable-v2.3.md) | Twenty real courses swept end to end; two parsing bugs fixed — a room that rendered as `"null"`, and a module/title swap for a second upstream name shape |
+| [v2.2](releases/TimeTable-v2.2.md) | Student-facing bug sweep: switching week no longer shows the wrong week's classes, Semester 2 is actually auto-detected, weekend classes are visible |
+| [v2.1](releases/TimeTable-v2.1.md) | Privacy hardening: in-app "Erase all app data", a verified update download, an update-check toggle |
+| [v2.0](releases/TimeTable-v2.0.md) | First stable build: a signed release pipeline, plus an audit-driven hardening pass |
 
-A student-facing bug sweep: six agents walked the app as a student would (first run, the core loop, every empty/error/offline state, careless input, settings persistence, dates, long sessions). Notes: [`releases/TimeTable-v2.2.md`](releases/TimeTable-v2.2.md).
-
-- **Switching week no longer shows the previous week's classes** under the new week's dates — which, when the week wasn't cached and the network failed, used to stay that way permanently
-- **Semester 2 is actually auto-detected now** (the boundary heuristic could never find the December → January gap), **weekend classes are visible** (Saturday used to be dropped), and week numbers no longer shift when a setting changes
-- **Stale states cleaned up:** a previous error no longer sticks to later weeks, a failed refresh over cached data is now stated instead of hidden behind "Loaded from cache", and the group picker no longer disappears while its filter stays applied
-- Plus: removing a saved course unpins it, search queries are trimmed, denying notifications no longer silently cancels a sync, and technical error text is replaced with plain English
-
-### What's new in v2.1
-
-Privacy hardening, driven by three audits. Notes: [`releases/TimeTable-v2.1.md`](releases/TimeTable-v2.1.md).
-
-- **Erase everything from inside the app** — Settings → Privacy → Erase all app data wipes the cache, saved courses, search history, settings, theme and crash record, then restarts. Several of those had no in-app delete at all before
-- **A downloaded update is verified before it is installed** — the app checks the APK is signed with its own key and refuses anything else
-- **The automatic update check can be switched off** (Settings → Privacy), and the `WRITE_EXTERNAL_STORAGE` permission — declared but never used — is gone
-- **PRIVACY.md now matches the code**, having previously contradicted itself about what is stored, named the wrong GitHub API, and omitted the update download and the install permission
-- Plus: the event key is the local wall clock rather than the raw UTC digits, and the sub-48 dp touch targets are fixed
-
-### What's new in v2.0
-
-The first stable build: a full-app audit, then the blockers, correctness fixes and polish below. Not an exhaustive list — see [`releases/TimeTable-v2.0.md`](releases/TimeTable-v2.0.md).
-
-- **Signed release builds exist at all.** There was no signing config, so a release APK could not be installed and the updater could not recognise one. Both are fixed; releases are R8-minified and ~25 MB smaller
-- **A broken database is no longer an unbreakable crash loop** — the recovery button can delete the database file instead of going through the database it cannot open
-- **No more duplicate classes after a refresh, no half-written cache, no corrupt-preference crash**, and rotation no longer throws away your screen or your search
-- **Nothing is uploaded to Google backup any more**, and your course is no longer written to logcat
-
-### What's new in v1.29
-
-Pick a theme. Notes: [`releases/TimeTable-v1.29.md`](releases/TimeTable-v1.29.md).
-
-- **Six themes, chosen in Settings → Appearance.** Classic (the original iOS palette, and the default) plus five cozy ones — Latte, Sage, Dusk, Peach and Mist — each with a live preview swatch. Picking one re-tints the whole app at once and is remembered across restarts
-- **Every theme has a light and a dark variant**, so the app still follows the system's light/dark setting; only the hue is yours
-- **A cozy palette is warm and low-contrast** — off-white (or warm deep grey in dark) rather than pure white/black, with a muted accent
-
-### What's new in v1.28
-
-Fixes three timetable bugs and rebuilds the change notification. Notes: [`releases/TimeTable-v1.28.md`](releases/TimeTable-v1.28.md).
-
-- **Classes are no longer an hour early.** The API sends every session in UTC and the app rendered that clock verbatim, so every class read an hour early through Irish Summer Time (and could land on the wrong day near midnight). Times are now projected into `Europe/Dublin`, and they self-correct after the clocks change
-- **"Semester 2" always switches.** For a course whose Semester 2 is not published yet, every week in that semester is "empty", and the *Hide empty weeks* option emptied the list — so tapping Semester 2 silently left you on the other semester's week. It now lands in the chosen semester and says "No classes this week"
-- **The group picker offers cohorts, not combinations.** A shared lecture belongs to several cohorts at once, and the picker offered the whole list as one option — reading as "TU859/Y1/G1 + TU859/Y1/G2". Each cohort is now its own option, while the shared class still appears under each of them
-- **"Timetable changes" is readable.** The modal that opened itself and printed a semicolon-joined sentence per change is gone: a compact, dismissible banner offers a review, and each class is one row that expands to the fields that changed, in local time
-### What's new in v1.27
-
-Fixes a launch crash that affected every build from v1.24 to v1.26. Notes: [`releases/TimeTable-v1.27.md`](releases/TimeTable-v1.27.md).
-
-- **The app opens again.** The database's destructive-fallback version list (added in v1.24) included version 6, which is also the start of the registered `6 → 7` migration. Room rejects that combination while *creating* the database, so the app crashed on every launch — and the recovery screen's restart put it straight back there, which looked like buttons that did nothing
-- **This cannot ship again.** Room's own validator is now exercised by a unit test against the shipped plan, so an inconsistent migration list fails the build instead of a user's phone
-- The broken v1.24–v1.26 APKs were removed from `releases/` so they cannot be installed by mistake
-
-### What's new in v1.26
-
-A diagnostic release for the "Something went wrong" screen: it does not fix the underlying crash yet — it makes it visible and makes recovery reliable. Notes: [`releases/TimeTable-v1.26.md`](releases/TimeTable-v1.26.md).
-
-- **The crash details are no longer lost or hidden.** The crash record was written asynchronously and could be discarded when the process died, and the details panel was collapsed — so the screen appeared blank with nothing to act on. The record is now written synchronously, recoverable from the on-disk marker, and shown by default
-- **An undeletable crash marker can no longer trap you on the recovery screen.** Clearing now timestamps the clear, so a stale marker is ignored — previously the screen returned on every launch and both buttons appeared to do nothing
-- **"Clear Cache & Restart" can no longer hang**, and no longer deletes your saved courses, pinned course or settings
-
-### What's new in v1.25
-
-One behaviour change — the rest is the v1.24 work below. Notes: [`releases/TimeTable-v1.25.md`](releases/TimeTable-v1.25.md).
-
-- **The app now reports its real version to the university API.** The request `User-Agent` was hardcoded as `TimeTableApp/1.1` and stayed there while the app reached 1.22, so campus network logs would misread current traffic as an ancient client. It now follows `versionName`, so it cannot go stale again
-- **Its contact link pointed at the wrong repository** (`…/TimeTable-APP`, which does not exist); it now points at `…/TUD-TimeTable-APP`
-- The value lives in one place instead of being duplicated across two configuration classes
-
-### What's new in v1.24
-
-A student-experience pass: 19 defects fixed, most of them about the timetable telling the truth. Full notes: [`releases/TimeTable-v1.24.md`](releases/TimeTable-v1.24.md).
-
-- **Your subgroup filter no longer hides all-cohort lectures** — classes with no specific group apply to everyone, and now stay visible when you pick G1/G2/…
-- **Fewer false change alerts, and no missed ones** — sessions are compared one-to-one, so a room swap is reported once and an unchanged week reports nothing
-- **Cancelled classes no longer come back** — a week that comes back empty is cached as empty instead of resurrecting the old rows
-- **No more crash loop from corrupt settings** — a bad stored value falls back to its default instead of crashing on launch
-- **"Clear Cache & Restart" keeps your data** — it clears the timetable cache only; saved/bookmarked courses, the pinned course and your group choices survive
-- **The current week is always reachable** — including May and August, outside the Sep–Apr teaching window
-- **Month names are always English**, not the device language
-- **Less background battery use** — the timetable refreshes when the cached week actually changes, instead of every 2 minutes
-- **Cleartext HTTP is no longer permitted** (every endpoint was already HTTPS)
+Releases before v2.0 are no longer published. They were debug-signed APKs, and v2.0 changed the
+signing key — so they could not be updated in place anyway, and keeping them only risked someone
+installing one by mistake.
 
 ## Setup (for developers)
 

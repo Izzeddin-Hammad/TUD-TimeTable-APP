@@ -130,9 +130,11 @@ class MainActivity : ComponentActivity() {
                         onCustomColorChanged = { hue, saturation ->
                             customHue = hue
                             customSaturation = saturation
+                        },
+                        onCustomColorCommitted = {
                             runCatching {
-                                SyncPreferences.setCustomHue(this@MainActivity, hue)
-                                SyncPreferences.setCustomSaturation(this@MainActivity, saturation)
+                                SyncPreferences.setCustomHue(this@MainActivity, customHue)
+                                SyncPreferences.setCustomSaturation(this@MainActivity, customSaturation)
                             }
                         },
                     )
@@ -176,6 +178,7 @@ private fun MainApp(
     customSaturation: Float,
     onThemeSelected: (String) -> Unit,
     onCustomColorChanged: (hue: Float, saturation: Float) -> Unit,
+    onCustomColorCommitted: () -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -522,7 +525,10 @@ private fun MainApp(
                 customHue = customHue,
                 customSaturation = customSaturation,
                 onThemeSelected = onThemeSelected,
+                // The recolour is live (state only); the choice is written once, when the student
+                // lets go of the slider — it used to be two preference commits per drag frame.
                 onCustomColorChanged = onCustomColorChanged,
+                onCustomColorCommitted = onCustomColorCommitted,
             )
         }
     }

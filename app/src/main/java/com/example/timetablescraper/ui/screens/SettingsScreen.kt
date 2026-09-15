@@ -65,6 +65,7 @@ fun SettingsScreen(
     customSaturation: Float = AppTheme.DEFAULT_CUSTOM_SATURATION,
     onThemeSelected: (String) -> Unit = {},
     onCustomColorChanged: (hue: Float, saturation: Float) -> Unit = { _, _ -> },
+    onCustomColorCommitted: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as TimetableApplication
@@ -248,6 +249,7 @@ fun SettingsScreen(
                                 hue = customHue,
                                 saturation = customSaturation,
                                 onChanged = onCustomColorChanged,
+                                onCommitted = onCustomColorCommitted,
                             )
                         }
                     }
@@ -1158,6 +1160,7 @@ private fun CustomColorControls(
     hue: Float,
     saturation: Float,
     onChanged: (hue: Float, saturation: Float) -> Unit,
+    onCommitted: () -> Unit,
 ) {
     val preview = AppTheme.CUSTOM.colors(isSystemInDarkTheme(), hue, saturation)
     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
@@ -1174,6 +1177,7 @@ private fun CustomColorControls(
         Slider(
             value = hue,
             onValueChange = { onChanged(it.roundToInt().toFloat(), saturation) },
+            onValueChangeFinished = onCommitted,
             valueRange = 0f..360f,
             modifier = Modifier.weight(1f)
         )
@@ -1190,6 +1194,7 @@ private fun CustomColorControls(
         Slider(
             value = saturation,
             onValueChange = { onChanged(hue, (it * 100f).roundToInt() / 100f) },
+            onValueChangeFinished = onCommitted,
             valueRange = 0f..1f,
             modifier = Modifier.weight(1f)
         )
