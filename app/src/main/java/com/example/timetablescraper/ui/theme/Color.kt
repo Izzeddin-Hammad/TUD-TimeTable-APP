@@ -43,12 +43,26 @@ data class IosColors(
     val green: Color,
     val red: Color,
     val orange: Color,
+    /** Filled star, e.g. the pinned group. */
+    val yellow: Color,
     val purple: Color,
     val teal: Color,
     val isDark: Boolean,
 ) {
     /** Label colour for content placed on [accent], [red] and friends. */
     val onAccent: Color get() = Color.White
+
+    /** [accent] at the strength iOS uses behind selected or tinted content. */
+    val accentWash: Color get() = accent.copy(alpha = 0.16f)
+
+    /** [red] at the strength used behind error rows and banners. */
+    val redWash: Color get() = red.copy(alpha = 0.14f)
+
+    /**
+     * [separator] for the lighter divider iOS uses inside a grouped surface. Note that this
+     * *replaces* the separator's own alpha rather than multiplying it.
+     */
+    val separatorSoft: Color get() = separator.copy(alpha = 0.5f)
 }
 
 private fun labelAlpha(base: Color, alpha: Float) = base.copy(alpha = alpha)
@@ -68,6 +82,7 @@ internal val LightIosColors = IosColors(
     green = Color(0xFF34C759),
     red = Color(0xFFFF3B30),
     orange = Color(0xFFFF9500),
+    yellow = Color(0xFFFFCC00),
     purple = Color(0xFFAF52DE),
     teal = Color(0xFF30B0C7),
     isDark = false,
@@ -88,6 +103,7 @@ internal val DarkIosColors = IosColors(
     green = Color(0xFF30D158),
     red = Color(0xFFFF453A),
     orange = Color(0xFFFF9F0A),
+    yellow = Color(0xFFFFD60A),
     purple = Color(0xFFBF5AF2),
     teal = Color(0xFF40C8E0),
     isDark = true,

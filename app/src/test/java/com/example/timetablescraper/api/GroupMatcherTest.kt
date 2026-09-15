@@ -105,9 +105,14 @@ class GroupMatcherTest {
     }
 
     @Test
-    fun `a group label containing a year and subgroup still matches the subgroup`() {
-        // Upstream names can carry several segments, e.g. "Y3/C/G1".
-        assertTrue(GroupMatcher.matches("Y3/C/G1", "G1"))
-        assertTrue(GroupMatcher.matches("Y3/C/G1", "C"))
+    fun `a path is one group, so its segments are not groups in their own right`() {
+        // Upstream names carry several segments ("Y3/C/G1"), but the segments are parts of one
+        // name. Treating them as separate groups made two unrelated cohorts match: picking
+        // TU859/MLAI/G2 pulled in TU859/CS/G2's classes because they share "TU859" and "G2".
+        assertTrue(GroupMatcher.matches("Y3/C/G1", "Y3/C/G1"))
+        assertTrue(GroupMatcher.matches("Y3/C/G1", " y3/c/g1 "))
+        assertFalse(GroupMatcher.matches("Y3/C/G1", "G1"))
+        assertFalse(GroupMatcher.matches("Y3/C/G1", "C"))
+        assertFalse(GroupMatcher.matches("TU859/MLAI/G2", "TU859/CS/G2"))
     }
 }

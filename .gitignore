@@ -14,8 +14,23 @@
 # Local JVM test-harness output (tools/jvm-test-harness.sh)
 .harness-out/
 
+# Third-party Autoprompt skill checkout (tools/autoprompt-skill) - vendored, not ours
+/tools/autoprompt-skill/
+
 # Workspace-local Gradle home used when ~/.gradle is not writable (build-agent use)
 .gradle-local/
 
 # Kotlin build-time scratch dir
 .kotlin/
+
+# Browser artefacts from the Playwright MCP server (normally redirected to /tmp by tools/playwright-mcp.sh)
+.playwright-mcp/
+.uv/
+tools/.agent-sqlite/
+
+# Agent workspace and local dev helpers — not part of the app
+.agent/
+.reasonix/
+vision-probe.png
+tools/*-mcp.sh
+tools/ui-sweep.py

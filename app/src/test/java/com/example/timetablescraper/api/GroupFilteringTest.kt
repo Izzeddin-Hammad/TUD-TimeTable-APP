@@ -176,14 +176,29 @@ class GroupFilteringTest {
     }
 
     @Test
-    fun `group extraction and filtering agree on the same token model`() {
-        // Whatever the UI offers as a filter option must be matchable.
-        val events = listOf(event(group = "Y3/C/G1"), event(group = ""))
+    fun `every option the UI offers selects the session it came from`() {
+        // The invariant that matters. Options are the groups as written, so each one has to select
+        // its own sessions — and only its own.
+        val events = listOf(
+            event(group = "Y3/C/G1"),
+            event(group = "Y3/C/G2"),
+            event(group = "G1 + G2"),
+            event(group = ""),
+        )
 
-        val offered = events.flatMap { GroupMatcher.parse(it.group) }.distinct().sorted()
+        val offered = GroupMatcher.availableGroups(events.map { it.group })
 
-        assertTrue(offered.contains("G1"))
-        assertTrue(offered.contains("C"))
-        assertTrue(events.any { GroupMatcher.matches(it.group, "G1") })
+        for (option in offered) {
+            assertTrue(
+                "offered '$option' but nothing matches it",
+                events.any { GroupMatcher.matches(it.group, option) },
+            )
+        }
+        assertTrue("a path is offered whole", offered.contains("Y3/C/G1"))
+        val others = events.filter { it.group != "Y3/C/G1" && it.group.isNotBlank() }
+        assertTrue(
+            "one cohort's path must not select another cohort's sessions",
+            others.none { GroupMatcher.matches(it.group, "Y3/C/G1") },
+        )
     }
 }

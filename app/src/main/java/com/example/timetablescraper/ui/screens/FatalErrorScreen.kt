@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
@@ -41,7 +43,6 @@ import com.example.timetablescraper.ui.components.IosCard
 import com.example.timetablescraper.ui.components.IosDivider
 import com.example.timetablescraper.ui.theme.IosTheme
 import com.example.timetablescraper.ui.theme.IosType
-import com.example.timetablescraper.ui.theme.SquircleShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -77,7 +78,10 @@ fun FatalErrorScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.groupedBackground),
+            .background(colors.groupedBackground)
+            // This screen is emitted straight from setContent, outside any Scaffold, so nothing
+            // else applies its insets — without this the card sits under the system bars.
+            .safeDrawingPadding(),
         contentAlignment = Alignment.Center
     ) {
         IosCard(
@@ -152,7 +156,7 @@ fun FatalErrorScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(SquircleShape(10.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(colors.tertiarySystemBackground)
                                 .heightIn(max = 260.dp)
                                 .verticalScroll(rememberScrollState())
@@ -167,7 +171,7 @@ fun FatalErrorScreen(
                                         append(crashInfo.stacktrace)
                                     }
                                 },
-                                style = IosType.caption2.copy(fontWeight = FontWeight.Normal),
+                                style = IosType.caption1,
                                 color = colors.secondaryLabel
                             )
                         }

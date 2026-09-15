@@ -104,12 +104,33 @@ class TimetableUtilsEdgeCaseTest {
     // ── group options offered by the UI ────────────────────────────────────────
 
     @Test
-    fun `available groups are distinct sorted tokens with plenary rows excluded`() {
-        val raw = listOf("", "G1", "G2", "G1", null, "G1 + G2", "g2")
+    fun `offered groups are whole cohorts in the institution's spelling`() {
+        val raw = listOf("", "G1", "G2", "G1", null, "G1 + G2", "g2", "TU859/Y3/MLAI/G2")
 
         val groups = GroupMatcher.availableGroups(raw)
 
-        assertEquals(listOf("G1", "G2"), groups)
+        // The whole cohort is the unit, so a hierarchical value stays one option instead of being
+        // offered as its parts ("TU859", "Y3", "MLAI", "G2"), and spelling variants of one
+        // cohort collapse to a single option.
+        assertEquals(listOf("G1", "G2", "TU859/Y3/MLAI/G2"), groups)
+    }
+
+    @Test
+    fun `a list of cohorts is offered as one option each, never joined by a plus`() {
+        // Regression: a shared session's field names several cohorts at once. Offering that whole
+        // string as a single picker entry read as though the first cohort had "other groups added
+        // as a +" ("TU859/Y1/G1 + TU859/Y1/G2"), a cohort nobody is enrolled in.
+        val raw = listOf("TU859/Y1/G1 + TU859/Y1/G2", "TU859/Y1/G3 + TU859/Y1/G4")
+
+        val groups = GroupMatcher.availableGroups(raw)
+
+        assertEquals(
+            listOf("TU859/Y1/G1", "TU859/Y1/G2", "TU859/Y1/G3", "TU859/Y1/G4"),
+            groups,
+        )
+        // ... and each still selects the shared session it was derived from.
+        assertTrue(GroupMatcher.matches("TU859/Y1/G1 + TU859/Y1/G2", "TU859/Y1/G1"))
+        assertTrue(GroupMatcher.matches("TU859/Y1/G1 + TU859/Y1/G2", "TU859/Y1/G2"))
     }
 
     @Test
@@ -120,6 +141,23 @@ class TimetableUtilsEdgeCaseTest {
         for (group in GroupMatcher.availableGroups(raw)) {
             assertTrue("offered '$group' but it matches nothing", GroupMatcher.matches(group, group))
         }
+    }
+
+    @Test
+    fun `a cohort offered in full still selects the sessions it came from`() {
+        // The option is the institution's spelling, the row carries the canonical form; matching
+        // parses both, so an offered option can never fail to select its own session.
+        val raw = listOf("TU859/Y3/MLAI/G2", "TU859/Y3/MLAI/G1")
+        val offered = GroupMatcher.availableGroups(raw)
+
+        for (group in offered) {
+            assertTrue("offered '$group' but it matches nothing", GroupMatcher.matches(group, group))
+        }
+        val canonical = GroupMatcher.format("TU859/Y3/MLAI/G2")
+        assertTrue(
+            "the canonical row must be selected by the full cohort",
+            GroupMatcher.matches(canonical, "TU859/Y3/MLAI/G2"),
+        )
     }
 
     // ── saved-course display names (the duplicated-cohort defect) ───────────────
@@ -140,7 +178,9 @@ class TimetableUtilsEdgeCaseTest {
     fun `a name without the cohort gains it exactly once`() {
         val name = TimetableUtils.savedCourseName("TU859/3 Computing", "TU859/MLAI/G2")
 
-        assertEquals("TU859/3 Computing (MLAI/G2)", name)
+        // The cohort is appended as written — the leading segment is not treated as a course code
+        // to strip, because then the name would show "(MLAI/G2)", which is not the group.
+        assertEquals("TU859/3 Computing (TU859/MLAI/G2)", name)
     }
 
     @Test
@@ -148,6 +188,34 @@ class TimetableUtilsEdgeCaseTest {
         assertEquals("TU859/3 Computing", TimetableUtils.savedCourseName("TU859/3 Computing", null))
         assertEquals("TU859/3 Computing", TimetableUtils.savedCourseName("TU859/3 Computing", ""))
         assertEquals("TU859/3 Computing", TimetableUtils.savedCourseName("TU859/3 Computing", "TU859"))
+    }
+
+    @Test
+    fun `a bare cohort with no course code is still appended`() {
+        // Upstream also sends compound cohorts with no hierarchy ("G1 + G2"). There is no course
+        // code to drop there, so dropping the leading segment would leave no cohort at all.
+        assertEquals(
+            "TU859/3 Computing (G1 + G2)",
+            TimetableUtils.savedCourseName("TU859/3 Computing", "G1 + G2"),
+        )
+    }
+
+    @Test
+    fun `the cohort is shown exactly as written, slash included`() {
+        val name = TimetableUtils.savedCourseName("TU859/3 Computing", "TU859/Y3/MLAI/G2")
+
+        assertEquals("TU859/3 Computing (TU859/Y3/MLAI/G2)", name)
+        assertEquals(1, Regex("""\(TU859/Y3/MLAI/G2\)""").findAll(name).count())
+    }
+
+    @Test
+    fun `a name saved by an older version is not given a second, longer suffix`() {
+        // Earlier versions appended only the part after the first slash, so a persisted name reads
+        // "(MLAI/G2)". The already-mentioned check has to recognise that spelling, or every
+        // previously saved course would end up with the cohort twice.
+        val legacy = "TU859/3 Computing (MLAI/G2)"
+
+        assertEquals(legacy, TimetableUtils.savedCourseName(legacy, "TU859/MLAI/G2"))
     }
 
     @Test
@@ -190,5 +258,19 @@ class TimetableUtilsEdgeCaseTest {
 
         assertEquals(setOf("2025-09-08"), active)
         assertTrue(empty.isEmpty())
+    }
+
+    @Test
+    fun `classification uses the local date, so a just-after-midnight class stays in its week`() {
+        // A Monday 00:30 class is serialised in UTC as the previous Sunday (23:30). Bucketing by the
+        // UTC date put it — and marked active — the week before.
+        val monday = LocalDate.of(2026, 9, 14)
+        val events = listOf(
+            ApiEvent("C1", "T", "Lec", "S", "R", "2026-09-13T23:30:00+00:00", "2026-09-14T00:30:00+00:00", ""),
+        )
+
+        val (active, _) = TimetableUtils.classifyWeeks(events, listOf(monday))
+
+        assertEquals(setOf("2026-09-14"), active)
     }
 }

@@ -103,7 +103,9 @@ class TimetableDiffTest {
         assertEquals("Room: A214 → B102", changes.single().description)
         assertEquals("CMPU3021", changes.single().moduleCode)
         assertEquals("Tue", changes.single().day)
-        assertEquals("09:00 - 11:00", changes.single().timeRange)
+        // 2025-10-07 is Irish Summer Time (UTC+1), so the UTC slot 09:00–11:00 reads 10:00–12:00 —
+        // the same value the timetable grid shows.
+        assertEquals("10:00 - 12:00", changes.single().timeRange)
     }
 
     @Test
@@ -217,8 +219,8 @@ class TimetableDiffTest {
 
         assertEquals(1, changes.size)
         assertEquals(ChangeType.MODIFIED, changes.single().type)
-        assertEquals("Time: 10:00 - 11:00 → 12:00 - 13:00", changes.single().description)
-        assertEquals("12:00 - 13:00", changes.single().timeRange)
+        assertEquals("Time: 11:00 - 12:00 → 13:00 - 14:00", changes.single().description)
+        assertEquals("13:00 - 14:00", changes.single().timeRange)
     }
 
     @Test
@@ -272,5 +274,64 @@ class TimetableDiffTest {
         assertEquals(1, changes.size)
         assertEquals("?", changes.single().day)
         assertEquals("??:?? - ??:??", changes.single().timeRange)
+    }
+
+    // ── structured details (source of the compact summary / expand-for-detail UI) ──
+
+    @Test
+    fun `a field change carries structured before-and-after details`() {
+        val changes = TimetableDiff.diff(
+            listOf(ev(room = "A214", lecturer = "Dr. A. Byrne")),
+            listOf(ev(room = "B102", lecturer = "Dr. C. Nolan")),
+        )
+
+        val details = changes.single().details
+        assertEquals(listOf("Room", "Lecturer"), details.map { it.label })
+        assertEquals("A214", details[0].from)
+        assertEquals("B102", details[0].to)
+        assertEquals("Dr. A. Byrne", details[1].from)
+        assertEquals("Dr. C. Nolan", details[1].to)
+    }
+
+    @Test
+    fun `a move carries a single time detail`() {
+        val changes = TimetableDiff.diff(
+            listOf(ev(start = "2025-10-07T10:00:00Z", end = "2025-10-07T11:00:00Z")),
+            listOf(ev(start = "2025-10-07T12:00:00Z", end = "2025-10-07T13:00:00Z")),
+        )
+
+        val details = changes.single().details
+        assertEquals(1, details.size)
+        assertEquals("Time", details.single().label)
+        assertEquals("11:00 - 12:00", details.single().from)
+        assertEquals("13:00 - 14:00", details.single().to)
+    }
+
+    @Test
+    fun `an added class lists its facts with only the new value set`() {
+        val changes = TimetableDiff.diff(
+            previous = listOf(ev()),
+            incoming = listOf(
+                ev(),
+                ev(module = "CMPU2004", room = "B305", start = "2025-10-08T14:00:00Z", end = "2025-10-08T16:00:00Z"),
+            ),
+        )
+
+        val details = changes.single().details
+        assertTrue(details.any { it.label == "Room" && it.from == null && it.to == "B305" })
+    }
+
+    @Test
+    fun `a removed class lists its facts with only the old value set`() {
+        val changes = TimetableDiff.diff(
+            previous = listOf(
+                ev(),
+                ev(module = "CMPU2004", room = "B305", start = "2025-10-08T14:00:00Z", end = "2025-10-08T16:00:00Z"),
+            ),
+            incoming = listOf(ev()),
+        )
+
+        val details = changes.single().details
+        assertTrue(details.any { it.label == "Room" && it.from == "B305" && it.to == null })
     }
 }

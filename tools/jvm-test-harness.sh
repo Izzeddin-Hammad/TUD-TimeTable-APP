@@ -47,6 +47,7 @@ ANDROID_JAR="$(ls /Users/*/Library/Android/sdk/platforms/*/android.jar 2>/dev/nu
 MAIN_SOURCES=(
   "app/src/main/java/com/example/timetablescraper/api/Models.kt"
   "app/src/main/java/com/example/timetablescraper/api/EventKey.kt"
+  "app/src/main/java/com/example/timetablescraper/api/DublinTime.kt"
   "app/src/main/java/com/example/timetablescraper/api/GroupMatcher.kt"
   "app/src/main/java/com/example/timetablescraper/api/TimetableDiff.kt"
   "app/src/main/java/com/example/timetablescraper/api/Semver.kt"

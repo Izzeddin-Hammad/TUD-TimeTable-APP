@@ -40,6 +40,20 @@ object UpdateChecker {
     /** Regex to parse version from APK filename: "TimeTable-v1.17-debug.apk" → "v1.17" */
     private val APK_VERSION_REGEX = Regex("TimeTable-v([\\d.]+)-debug\\.apk")
 
+    /**
+     * Whether an APK may be downloaded and handed to the installer.
+     *
+     * `download_url` arrives inside a remote JSON response and its value is what the install flow
+     * then acts on, so it is checked before use: an `http://`, `file://`, or attacker-chosen host
+     * would otherwise turn a tampered response into an install of something we never published.
+     */
+    internal fun isTrustedApkUrl(url: String): Boolean {
+        val parsed = try { java.net.URI(url) } catch (_: Exception) { return false }
+        if (!parsed.scheme.equals("https", ignoreCase = true)) return false
+        val host = parsed.host?.lowercase() ?: return false
+        return host == "github.com" || host.endsWith(".githubusercontent.com")
+    }
+
     /** Lightweight OkHttp client dedicated to update checks (no rate-limiting needed). */
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -111,7 +125,7 @@ object UpdateChecker {
                     val version = match.groupValues[1] // e.g. "1.17"
                     val downloadUrl = entry.optString("download_url", "")
 
-                    if (downloadUrl.isNotEmpty()) {
+                    if (isTrustedApkUrl(downloadUrl)) {
                         if (bestVersion == null || isNewerThan("v$version", "v$bestVersion")) {
                             bestVersion = version
                             bestDownloadUrl = downloadUrl

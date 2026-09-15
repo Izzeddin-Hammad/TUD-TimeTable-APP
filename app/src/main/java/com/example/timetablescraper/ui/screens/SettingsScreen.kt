@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.core.content.ContextCompat
 import com.example.timetablescraper.api.TimetableUtils
+import com.example.timetablescraper.ui.theme.IosTheme
+import com.example.timetablescraper.ui.theme.IosType
 import java.time.LocalDate
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.*
@@ -160,16 +162,18 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // This screen hosts text fields; without IME padding the keyboard covers them.
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // ── Auto-refresh section ────────────────────────────────────
-            Card {
+            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         "Background Refresh",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = IosType.headline,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -182,7 +186,7 @@ fun SettingsScreen(
                     ) {
                         Text(
                             "Auto-refresh timetable",
-                            style = MaterialTheme.typography.bodyLarge
+                            style = IosType.body
                         )
                         Switch(
                             checked = autoSyncEnabled,
@@ -201,8 +205,8 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "Keeps your cached timetables up to date in the background.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = IosType.footnote,
+                        color = IosTheme.colors.secondaryLabel
                     )
 
                     // ── Sync Strategy selector (Daily / Weekly / Custom) ──
@@ -210,13 +214,13 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             "Sync Strategy",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = IosType.subhead,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             "Network calls are blocked while your cache is fresh.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = IosType.footnote,
+                            color = IosTheme.colors.secondaryLabel
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -289,8 +293,8 @@ fun SettingsScreen(
                                 // Always DAYS — no unit dropdown needed
                                 Text(
                                     "= ${syncStrategy.ttlMillis() / 86_400_000} day(s) cache validity",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    style = IosType.footnote,
+                                    color = IosTheme.colors.secondaryLabel
                                 )
                             }
                         }
@@ -324,8 +328,8 @@ fun SettingsScreen(
             val lastManual = SyncPreferences.getLastManualSync(context)
             Text(
                 "Last manual sync: ${formatTimestamp(lastManual)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = IosType.footnote,
+                color = IosTheme.colors.secondaryLabel
             )
 
             // ── First academic week ──────────────────────────────────────
@@ -338,18 +342,18 @@ fun SettingsScreen(
             val sem2Week = remember(sem2WeekStr) {
                 sem2WeekStr?.let { try { LocalDate.parse(it) } catch (_: Exception) { null } }
             }
-            Card {
+            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         "Academic Year Start",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = IosType.headline,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "Pick the first week of your academic year. Empty weeks before this are hidden.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = IosType.footnote,
+                        color = IosTheme.colors.secondaryLabel
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -397,14 +401,14 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         "Semester 2 Start",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = IosType.headline,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "Pick the first week of Semester 2. Weeks between semesters are hidden.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = IosType.footnote,
+                        color = IosTheme.colors.secondaryLabel
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -462,22 +466,22 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Hide empty weeks",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (hideEmptyWeeks) MaterialTheme.colorScheme.onSurface
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                style = IosType.body,
+                                color = if (hideEmptyWeeks) IosTheme.colors.label
+                                        else IosTheme.colors.secondaryLabel
                             )
                             Text(
                                 "Weeks with no classes are removed from the week dropdown.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (hideEmptyWeeks) MaterialTheme.colorScheme.onSurfaceVariant
-                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                style = IosType.footnote,
+                                color = if (hideEmptyWeeks) IosTheme.colors.secondaryLabel
+                                        else IosTheme.colors.secondaryLabel.copy(alpha = 0.5f)
                             )
                             if (!hideEmptyWeeks) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     "⚠️ When disabled, semester auto-detection will not work.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error
+                                    style = IosType.footnote,
+                                    color = IosTheme.colors.red
                                 )
                             }
                         }
@@ -493,11 +497,11 @@ fun SettingsScreen(
             }
 
             // ── Cache statistics section ───────────────────────────────
-            Card {
+            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         "Cached Data",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = IosType.headline,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -515,7 +519,7 @@ fun SettingsScreen(
                         onClick = { showClearConfirm = true },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
+                            contentColor = IosTheme.colors.red
                         )
                     ) {
                         Icon(
@@ -531,17 +535,17 @@ fun SettingsScreen(
 
             // ── Per-course cache management ────────────────────────────────
             if (cachedCourseIds.isNotEmpty()) {
-                Card {
+                Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
                             "Cached Courses",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = IosType.headline,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             "Delete individual course caches without wiping everything.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = IosType.footnote,
+                            color = IosTheme.colors.secondaryLabel
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -571,14 +575,14 @@ fun SettingsScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         displayName,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = IosType.callout,
                                         fontWeight = FontWeight.Medium
                                     )
                                     if (detail.isNotEmpty()) {
                                         Text(
                                             detail,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            style = IosType.caption1,
+                                            color = IosTheme.colors.secondaryLabel
                                         )
                                     }
                                 }
@@ -602,7 +606,7 @@ fun SettingsScreen(
                                     Icon(
                                         Icons.Default.DeleteForever,
                                         contentDescription = "Delete cache for $displayName",
-                                        tint = MaterialTheme.colorScheme.error,
+                                        tint = IosTheme.colors.red,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -615,18 +619,18 @@ fun SettingsScreen(
 
             // ── Saved Timetables ─────────────────────────────────────────
             if (savedCourses.isNotEmpty()) {
-                Card {
+                Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
                             "Saved Timetables",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = IosType.headline,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "Tap a course to jump to its timetable.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = IosType.footnote,
+                            color = IosTheme.colors.secondaryLabel
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
@@ -663,13 +667,13 @@ fun SettingsScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         saved.name,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = IosType.callout,
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
                                         saved.programmeCode,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        style = IosType.caption1,
+                                        color = IosTheme.colors.secondaryLabel
                                     )
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -696,7 +700,7 @@ fun SettingsScreen(
                                             }
                                         },
                                         colors = ButtonDefaults.textButtonColors(
-                                            contentColor = MaterialTheme.colorScheme.error
+                                            contentColor = IosTheme.colors.red
                                         )
                                     ) {
                                         Icon(
@@ -718,7 +722,7 @@ fun SettingsScreen(
             }
 
             // ── Check for updates ───────────────────────────────────────
-            Card {
+            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -728,14 +732,14 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Check for updates",
-                                style = MaterialTheme.typography.titleSmall,
+                                style = IosType.subhead,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 if (isCheckingUpdate) "Checking…"
                                 else "Current version: ${com.example.timetablescraper.BuildConfig.VERSION_NAME}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                style = IosType.footnote,
+                                color = IosTheme.colors.secondaryLabel
                             )
                         }
                         OutlinedButton(
@@ -770,11 +774,11 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             updateCheckMessage!!,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = IosType.footnote,
                             color = if (updateCheckResult?.updateAvailable == true)
-                                MaterialTheme.colorScheme.primary
+                                IosTheme.colors.accent
                             else
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                IosTheme.colors.secondaryLabel.copy(alpha = 0.7f)
                         )
                     }
                 }
@@ -784,8 +788,8 @@ fun SettingsScreen(
             Text(
                 "Cached timetables let you view your schedule even when offline. " +
                 "Auto-refresh keeps them updated in the background.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                style = IosType.footnote,
+                color = IosTheme.colors.secondaryLabel.copy(alpha = 0.7f)
             )
         }
     }
@@ -815,7 +819,7 @@ fun SettingsScreen(
                         }
                     },
                     colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
+                        contentColor = IosTheme.colors.red
                     )
                 ) {
                     Text("Clear")
@@ -875,12 +879,12 @@ private fun StatRow(label: String, value: String) {
     ) {
         Text(
             label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style = IosType.callout,
+            color = IosTheme.colors.secondaryLabel
         )
         Text(
             value,
-            style = MaterialTheme.typography.bodyMedium,
+            style = IosType.callout,
             fontWeight = FontWeight.SemiBold
         )
     }

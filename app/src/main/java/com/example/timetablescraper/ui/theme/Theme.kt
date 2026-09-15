@@ -1,6 +1,5 @@
 package com.example.timetablescraper.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
@@ -11,11 +10,8 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
 
 /**
  * Maps the fixed iOS palette onto Material 3's slots.
@@ -30,7 +26,7 @@ private fun iosColorScheme(c: IosColors): ColorScheme {
     return base.copy(
         primary = c.accent,
         onPrimary = c.onAccent,
-        primaryContainer = c.accent.copy(alpha = 0.16f),
+        primaryContainer = c.accentWash,
         onPrimaryContainer = c.accent,
         secondary = c.accent,
         onSecondary = c.onAccent,
@@ -52,10 +48,10 @@ private fun iosColorScheme(c: IosColors): ColorScheme {
         inverseOnSurface = c.systemBackground,
         error = c.red,
         onError = c.onAccent,
-        errorContainer = c.red.copy(alpha = 0.14f),
+        errorContainer = c.redWash,
         onErrorContainer = c.red,
         outline = c.separator,
-        outlineVariant = c.separator.copy(alpha = 0.5f),
+        outlineVariant = c.separatorSoft,
         scrim = Color.Black,
     )
 }
@@ -82,21 +78,10 @@ fun TimetableScraperTheme(
         iosColorScheme(iosColors)
     }
 
-    // Status/navigation bar icons must invert with the theme, or a dark background gets dark
-    // icons and looks broken. The bars themselves are transparent: `enableEdgeToEdge()` in
-    // MainActivity already lets content run underneath them.
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            runCatching {
-                val window = (view.context as Activity).window
-                WindowCompat.getInsetsController(window, view).apply {
-                    isAppearanceLightStatusBars = !darkTheme
-                    isAppearanceLightNavigationBars = !darkTheme
-                }
-            }
-        }
-    }
+    // System bar icon appearance belongs to `enableEdgeToEdge()` in MainActivity, which resolves it
+    // from the same night-mode configuration this theme follows. Setting it here as well gave two
+    // mechanisms the chance to disagree. If this app ever gains an in-app theme override, pass an
+    // explicit SystemBarStyle to enableEdgeToEdge rather than reinstating this.
 
     CompositionLocalProvider(LocalIosColors provides iosColors) {
         MaterialTheme(

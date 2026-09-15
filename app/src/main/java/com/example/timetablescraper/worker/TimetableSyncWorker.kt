@@ -166,7 +166,8 @@ class TimetableSyncWorker(
                                     room = event.room,
                                     start = event.start,
                                     end = event.end,
-                                    group = event.group,
+                                    // Store the institution's spelling; the canonical form is derived on read.
+                                    group = event.groupLabel.ifBlank { event.group },
                                     courseName = courseName
                                 )
                             }

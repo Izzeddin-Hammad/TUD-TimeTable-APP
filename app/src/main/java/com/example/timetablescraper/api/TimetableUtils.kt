@@ -1,6 +1,5 @@
 package com.example.timetablescraper.api
 
-import android.util.Log
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
@@ -13,8 +12,6 @@ import java.util.Locale
  */
 object TimetableUtils {
 
-    private const val TAG = "TimetableUtils"
-
     private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
     // Cached formatters. These used to be built inside the functions below, i.e. a
@@ -25,18 +22,31 @@ object TimetableUtils {
     private val WEEK_RANGE_END_FORMATTER = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH)
 
     /**
-     * Dublin timezone resolved eagerly with a safe fallback.
-     * If the IANA database is somehow incomplete, the system default is used
-     * and a warning is logged.  This prevents [ZoneId.of] from throwing
-     * [java.time.DateTimeException] on misconfigured runtimes.
+     * The institution's timezone, resolved once by [DublinTime] so the timetable grid and the
+     * change feed cannot disagree about what "local time" means. Falls back to the system default
+     * if the IANA database is incomplete, so [ZoneId.of] can never throw on a misconfigured runtime.
      */
     @JvmStatic
-    val DUBLIN_ZONE: ZoneId = try {
-        ZoneId.of("Europe/Dublin")
-    } catch (e: Exception) {
-        Log.w(TAG, "Europe/Dublin timezone unavailable, falling back to system default", e)
-        ZoneId.systemDefault()
+    val DUBLIN_ZONE: ZoneId = DublinTime.ZONE
+
+    /** Wall-clock `HH:mm` for a session time, in the institution's zone. */
+    private val CLOCK_FORMATTER = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
+
+    /**
+     * Clock time of a value [DublinTime.toLocal] could not read, taken literally from the string.
+     * Preserves the historical behaviour for naive/date-only/malformed input.
+     */
+    private fun legacyTimePart(s: String): String = when {
+        s.length >= 16 -> s.substring(11, 16)
+        s.length >= 5 -> s.substring(11.coerceAtMost(s.length))
+        else -> "??:??"
     }
+
+    /** Date of a value [DublinTime.toLocal] could not read, taken literally from the string. */
+    private fun legacyDatePart(s: String): LocalDate? =
+        if (s.length >= 10) {
+            try { LocalDate.parse(s.substring(0, 10)) } catch (_: Exception) { null }
+        } else null
 
     /**
      * Convert an API event into a UI-friendly TimetableEvent.
@@ -44,19 +54,20 @@ object TimetableUtils {
      */
     fun toUiEvent(event: ApiEvent, weekStart: String): TimetableEvent {
         return try {
-            val startTime = if (event.start.length >= 16) event.start.substring(11, 16)
-            else if (event.start.length >= 5) event.start.substring(11.coerceAtMost(event.start.length))
-            else "??:??"
-            val endTime = if (event.end.length >= 16) event.end.substring(11, 16)
-            else if (event.end.length >= 5) event.end.substring(11.coerceAtMost(event.end.length))
-            else "??:??"
+            // Upstream sends every session in UTC; project the instant into the institution's zone
+            // before reading the wall clock (see [DublinTime]). A value with no offset is taken
+            // literally, so naive/date-only/malformed rows behave exactly as before.
+            val startLocal = DublinTime.toLocal(event.start)
+            val endLocal = DublinTime.toLocal(event.end)
 
-            val dayName = if (event.start.length >= 10) {
-                try {
-                    val date = LocalDate.parse(event.start.substring(0, 10))
-                    date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
-                } catch (_: Exception) { "" }
-            } else ""
+            val startTime = startLocal?.toLocalTime()?.format(CLOCK_FORMATTER)
+                ?: legacyTimePart(event.start)
+            val endTime = endLocal?.toLocalTime()?.format(CLOCK_FORMATTER)
+                ?: legacyTimePart(event.end)
+
+            val startDate = startLocal?.toLocalDate() ?: legacyDatePart(event.start)
+            val dayName = startDate?.dayOfWeek
+                ?.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH) ?: ""
 
             val dayIndex = when (dayName) {
                 "Mon" -> 0; "Tue" -> 1; "Wed" -> 2; "Thu" -> 3; "Fri" -> 4
@@ -76,7 +87,8 @@ object TimetableUtils {
                 dayIndex = dayIndex,
                 timeRange = "$startTime - $endTime",
                 weekStart = weekStart,
-                group = event.group
+                group = event.group,
+                groupLabel = event.groupLabel
             )
         } catch (_: Exception) {
             TimetableEvent(
@@ -92,7 +104,8 @@ object TimetableUtils {
                 dayIndex = -1,
                 timeRange = "??:?? - ??:??",
                 weekStart = weekStart,
-                group = event.group
+                group = event.group,
+                groupLabel = event.groupLabel
             )
         }
     }
@@ -245,9 +258,9 @@ object TimetableUtils {
         allWeeks: List<LocalDate> = generateAcademicWeeks()
     ): Pair<Set<String>, Set<String>> {
         val activeKeys = events.mapNotNull { event ->
-            try {
-                LocalDate.parse(event.start.substring(0, 10))
-            } catch (_: Exception) { null }
+            // Bucket by the institution's local date: a Monday-00:30 class is serialised in UTC as
+            // the previous Sunday, which would otherwise fall into (and mark active) the wrong week.
+            DublinTime.toLocal(event.start)?.toLocalDate() ?: legacyDatePart(event.start)
         }.mapNotNull { date ->
             allWeeks.firstOrNull { monday ->
                 !date.isBefore(monday) && !date.isAfter(monday.plusDays(6))
@@ -279,10 +292,22 @@ object TimetableUtils {
         var cleaned = name.replace(Regex("\\s+"), " ").trim()
         cleaned = cleaned.replace(Regex("\\(([^()]+)\\)\\s*\\(\\1\\)"), "($1)").trim()
 
-        val fullGroup = group?.split("/")?.drop(1)?.joinToString("/")?.trim().orEmpty()
-        if (fullGroup.isEmpty()) return cleaned
-        if (cleaned.contains("($fullGroup)", ignoreCase = true)) return cleaned
-        return "$cleaned ($fullGroup)"
+        // The cohort is shown exactly as the institution writes it, slash and all. Rewriting it —
+        // dropping a leading course code because the name happens to open with the same code, or
+        // reordering and rejoining its parts — puts a different string on screen from the one the
+        // student reads on their own timetable.
+        val cohort = group?.trim().orEmpty()
+        if (cohort.isEmpty()) return cleaned
+        // A "group" that is only the course code the name already opens with adds nothing.
+        if (cleaned.startsWith(cohort, ignoreCase = true)) return cleaned
+        // Already mentioned? Accept the older spelling too: names saved by an earlier version carry
+        // only the part after the first slash — "(MLAI/G2)" for cohort "TU859/MLAI/G2" — so a plain
+        // contains() on the full cohort would stack a second, longer suffix onto every saved course.
+        val legacyTail = cohort.substringAfter("/", "")
+        val alreadyMentioned = cleaned.contains("($cohort)", ignoreCase = true) ||
+            (legacyTail.isNotEmpty() && cleaned.contains("($legacyTail)", ignoreCase = true))
+        if (alreadyMentioned) return cleaned
+        return "$cleaned ($cohort)"
     }
 
     fun safeFormat(date: LocalDate, formatter: DateTimeFormatter): String {

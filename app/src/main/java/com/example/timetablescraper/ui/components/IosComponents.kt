@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
@@ -39,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -53,7 +55,6 @@ import com.example.timetablescraper.ui.theme.IosRadius
 import com.example.timetablescraper.ui.theme.IosTheme
 import com.example.timetablescraper.ui.theme.IosType
 import com.example.timetablescraper.ui.theme.Motion
-import com.example.timetablescraper.ui.theme.SquircleShape
 import com.example.timetablescraper.ui.theme.iosPressable
 
 /**
@@ -151,7 +152,7 @@ fun IosListSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .clip(SquircleShape(IosRadius.card))
+                .clip(RoundedCornerShape(IosRadius.card))
                 .background(IosTheme.colors.secondarySystemBackground),
             content = content,
         )
@@ -283,7 +284,7 @@ fun IosButton(
 
     Box(
         modifier = modifier
-            .clip(SquircleShape(IosRadius.card))
+            .clip(RoundedCornerShape(IosRadius.card))
             .background(if (enabled) background else colors.fill)
             .iosTappable(enabled = enabled, pressedScale = 0.97f, haptic = true, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 14.dp),
@@ -363,7 +364,7 @@ fun IosSegmentedControl(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .clip(SquircleShape(IosRadius.medium))
+            .clip(RoundedCornerShape(IosRadius.medium))
             .background(colors.fill)
             .padding(2.dp),
     ) {
@@ -379,12 +380,12 @@ fun IosSegmentedControl(
                 .offset(x = thumbOffset)
                 .width(segmentWidth)
                 .height(32.dp)
-                .clip(SquircleShape(7.dp))
+                .clip(RoundedCornerShape(7.dp))
                 .background(colors.secondarySystemBackground)
                 .border(
                     width = IosHairline,
                     color = colors.separator.copy(alpha = 0.35f),
-                    shape = SquircleShape(7.dp),
+                    shape = RoundedCornerShape(7.dp),
                 ),
         )
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -393,7 +394,7 @@ fun IosSegmentedControl(
                     modifier = Modifier
                         .width(segmentWidth)
                         .height(32.dp)
-                        .clip(SquircleShape(7.dp))
+                        .clip(RoundedCornerShape(7.dp))
                         .iosTappable(pressedScale = 0.96f) {
                             if (index != selectedIndex) hapticTick()
                             onSelect(index)
@@ -506,7 +507,7 @@ fun IosSearchField(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(SquircleShape(IosRadius.medium))
+            .clip(RoundedCornerShape(IosRadius.medium))
             .background(colors.fill)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -568,12 +569,14 @@ fun IosCard(
     modifier: Modifier = Modifier,
     background: Color = IosTheme.colors.secondarySystemBackground,
     radius: Dp = IosRadius.card,
+    elevation: Dp = 2.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(SquircleShape(radius))
+            .shadow(elevation, RoundedCornerShape(radius))
+            .clip(RoundedCornerShape(radius))
             .background(background),
         content = content,
     )

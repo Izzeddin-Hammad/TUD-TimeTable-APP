@@ -13,9 +13,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -34,28 +40,33 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.timetablescraper.SyncPreferences
 import com.example.timetablescraper.TimetableApplication
 import com.example.timetablescraper.worker.SyncNotificationManager
-import com.example.timetablescraper.api.ApiEvent
 import com.example.timetablescraper.api.CacheSource
 import com.example.timetablescraper.api.ChangeType
 import com.example.timetablescraper.api.GroupMatcher
 import com.example.timetablescraper.api.SearchResult
 import com.example.timetablescraper.api.TimetableChange
+import com.example.timetablescraper.api.TimetableChangeDetail
 import com.example.timetablescraper.api.TimetableApiService
 import com.example.timetablescraper.api.TimetableEvent
 import com.example.timetablescraper.api.TimetableUtils
+import com.example.timetablescraper.api.cache.toApiEvent
+import com.example.timetablescraper.ui.components.IosDivider
 import com.example.timetablescraper.ui.components.IosSegmentedControl
+import com.example.timetablescraper.ui.theme.IosColors
 import com.example.timetablescraper.ui.theme.IosRadius
 import com.example.timetablescraper.ui.theme.IosTheme
+import com.example.timetablescraper.ui.theme.IosType
 import com.example.timetablescraper.ui.theme.Motion
-import com.example.timetablescraper.ui.theme.SquircleShape
 import com.example.timetablescraper.ui.theme.iosPressable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -71,20 +82,33 @@ private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
 // ── Colour palette for event types ──────────────────────────────────────────
 
-private val typeColors = mapOf(
-    "Lab" to Color(0xFF2196F3),
-    "Practical" to Color(0xFF2196F3),
-    "Tutorial" to Color(0xFF4CAF50),
-    "Tut" to Color(0xFF4CAF50),
-    "Lecture" to Color(0xFF673AB7),
-    "Lec" to Color(0xFF673AB7)
+/**
+ * Session type → one of the palette's system colours.
+ *
+ * This table used to hold Material's own hues inline (blue 500, green 500, deep purple, plus a
+ * blue-grey fallback) — which is how stock Material colour ended up on screen in an app that is
+ * otherwise entirely on the iOS palette, and it could not follow the light/dark scheme at all.
+ *
+ * Matching stays a case-insensitive substring test because upstream sends both the long and the
+ * abbreviated form ("Tutorial"/"Tut", "Lecture"/"Lec"), and the first match wins.
+ */
+private val typeColors = listOf<Pair<String, (IosColors) -> Color>>(
+    "Lab" to { c -> c.accent },
+    "Practical" to { c -> c.accent },
+    "Tutorial" to { c -> c.green },
+    "Tut" to { c -> c.green },
+    "Lecture" to { c -> c.purple },
+    "Lec" to { c -> c.purple }
 )
 
-private fun colorForType(type: String): Color {
-    return typeColors.entries.firstOrNull { (key, _) ->
-        type.contains(key, ignoreCase = true)
-    }?.value ?: Color(0xFF607D8B)
-}
+/**
+ * Colour for a session type. An unknown type falls back to [IosColors.secondaryLabel]: a neutral
+ * that reads as "unclassified", rather than a colour that claims a category it has no name for.
+ */
+internal fun colorForType(type: String, palette: IosColors): Color =
+    typeColors.firstOrNull { (key, _) -> type.contains(key, ignoreCase = true) }
+        ?.second?.invoke(palette)
+        ?: palette.secondaryLabel
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 
@@ -174,6 +198,9 @@ fun TimetableScreen(
     var showRefreshRateLimited by remember { mutableStateOf(false) }
     var timetableChanges by remember { mutableStateOf<List<TimetableChange>>(emptyList()) }
     var showChangesDialog by remember { mutableStateOf(false) }
+    // Changes are surfaced by a compact banner the student can tap, never by a dialog that opens
+    // itself — an unprompted wall of diffs was the most confusing screen in the app.
+    var showChangesBanner by remember { mutableStateOf(false) }
     var uiTapKey by remember { mutableStateOf(0) }
     val uiRefresh = { uiTapKey++ }
 
@@ -267,6 +294,13 @@ fun TimetableScreen(
         val mondayStr = currentMonday.format(DATE_FORMATTER)
         val forceRefresh = refreshTrigger > 0
 
+        // A pending "N changes" prompt belongs to the week it was found for. A load is a new context
+        // (new week, new course, or a deliberate refresh), so drop the old prompt before fetching —
+        // the network branch below re-raises it only if *this* week still has changes. Without this
+        // the banner from the previous course/week stayed on screen until the new fetch resolved.
+        showChangesBanner = false
+        timetableChanges = emptyList()
+
         // Activate the pull-to-refresh indicator for user-initiated refreshes
         if (forceRefresh) isRefreshing = true
 
@@ -276,7 +310,7 @@ fun TimetableScreen(
                 val cached = app.database.timetableDao()
                     .getEvents(selectedCourse.identity, mondayStr)
                 if (cached.isNotEmpty()) {
-                    cached.map { it.let { e -> ApiEvent(e.moduleCode, e.title, e.type, e.lecturer, e.room, e.start, e.end, e.group, e.id) } }
+                    cached.map { it.toApiEvent() }
                         .map { TimetableUtils.toUiEvent(it, mondayStr) }
                 } else null
             }
@@ -290,11 +324,10 @@ fun TimetableScreen(
 
         // ── Phase 2: full load (cache-hit short-circuit or network) ───
         try {
-            // Include group in cached course name for full display in Settings
-            val cacheName = if (selectedGroup != null) {
-                val fullGroup = selectedGroup!!.split("/").drop(1).joinToString("/")
-                "${selectedCourse.name} ($fullGroup)"
-            } else selectedCourse.name
+            // The cohort goes into the cached name so Settings shows which cohort the cache is for.
+            // Delegated to savedCourseName so this path and the save/star path cannot drift — the
+            // inline copy this replaces also produced a bare "()" when the cohort was empty.
+            val cacheName = TimetableUtils.savedCourseName(selectedCourse.name, selectedGroup)
             val result = repository.loadTimetable(
                 courseIdentity = selectedCourse.identity,
                 timetableTypeId = selectedCourse.timetable_type_id,
@@ -314,10 +347,12 @@ fun TimetableScreen(
                 cacheSource = result.source
             }
 
-            // Check for timetable changes (from any network fetch)
-            if (result.source == CacheSource.NETWORK && result.changes.isNotEmpty()) {
+            // Check for timetable changes (from any network fetch). A fresh network result is the
+            // single source of truth for what is pending: it either replaces the offered changes or
+            // clears them, so a stale "N changes" prompt can never outlive the timetable it describes.
+            if (result.source == CacheSource.NETWORK) {
                 timetableChanges = result.changes
-                showChangesDialog = true
+                showChangesBanner = result.changes.isNotEmpty()
             }
 
             // Post notification for pull-to-refresh
@@ -452,13 +487,13 @@ fun TimetableScreen(
                     Column {
                         Text(
                             selectedCourse.name,
-                            style = MaterialTheme.typography.titleSmall,
+                            style = IosType.subhead,
                             maxLines = 1
                         )
                         Text(
                             selectedCourse.programme_code,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = IosType.caption1,
+                            color = IosTheme.colors.secondaryLabel
                         )
                     }
                 },
@@ -475,8 +510,8 @@ fun TimetableScreen(
                         Icon(
                             if (isStarred) Icons.Filled.Star else Icons.Filled.StarBorder,
                             contentDescription = if (isStarred) "Unpin from home" else "Pin to home",
-                            tint = if (isStarred) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (isStarred) IosTheme.colors.accent
+                                   else IosTheme.colors.secondaryLabel
                         )
                     }
 
@@ -550,16 +585,28 @@ fun TimetableScreen(
                 CacheStatusBar(source = cacheSource!!)
             }
 
+            // ── Pending timetable changes (tap to review) ─────────────────
+            if (showChangesBanner && timetableChanges.isNotEmpty()) {
+                TimetableChangesBanner(
+                    count = timetableChanges.size,
+                    onReview = { showChangesDialog = true },
+                    onDismiss = {
+                        showChangesBanner = false
+                        timetableChanges = emptyList()
+                    },
+                )
+            }
+
             // ── Pull-to-refresh rate-limit message ────────────────────────
             if (showRefreshRateLimited) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f)
+                    color = IosTheme.colors.purple.copy(alpha = 0.12f)
                 ) {
                     Text(
                         text = "⏳ Timetable was refreshed in the last 24 hours. Try again later.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
+                        style = IosType.caption1,
+                        color = IosTheme.colors.purple,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                     )
@@ -641,11 +688,21 @@ fun TimetableScreen(
                         sem2WeekDate != null && !w.isBefore(sem2WeekDate)
                     }
                 }
-                var result = candidates.filter { it.format(DATE_FORMATTER) !in failedWeeks }
-                if (hideEmpty) {
-                    result = result.filter { it.format(DATE_FORMATTER) !in emptyWeeks }
+                val reachable = candidates.filter { it.format(DATE_FORMATTER) !in failedWeeks }
+                if (!hideEmpty) {
+                    reachable
+                } else {
+                    // "Hide empty weeks" must never empty out a whole semester. When every week in
+                    // the selected semester is empty — e.g. Semester 2 is not published yet — the
+                    // filtered list came back empty, so the week picker had nothing to show and the
+                    // `currentMonday` corrections below were skipped: tapping "Semester 2" silently
+                    // left the screen on the *other* semester's week. Falling back to the full
+                    // semester keeps the tab functional — the student lands in Semester 2 and sees
+                    // "No classes this week".
+                    reachable
+                        .filter { it.format(DATE_FORMATTER) !in emptyWeeks }
+                        .ifEmpty { reachable }
                 }
-                result
             }
 
             // Always jump to the first visible week if currentMonday is not visible
@@ -766,7 +823,7 @@ fun TimetableScreen(
 
             // ── Group filter (only show if there are multiple groups) ──────
             val availableGroups = remember(events) {
-                GroupMatcher.availableGroups(events.map { it.group })
+                GroupMatcher.availableGroups(events.map { it.groupLabel.ifBlank { it.group } })
             }
             if (availableGroups.size > 1) {
                 ExposedDropdownMenuBox(
@@ -786,7 +843,8 @@ fun TimetableScreen(
                                 modifier = Modifier.size(48.dp)
                             )
                         },
-                        singleLine = true,
+                        // No singleLine: a cohort such as "TU859/Y3/MLAI/G2" must be readable in
+                        // full, and a single-line field clips it.
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth().menuAnchor()
                     )
@@ -822,7 +880,7 @@ fun TimetableScreen(
                                             if (isPinned) Icons.Filled.Star else Icons.Filled.StarBorder,
                                             "Set as default",
                                             Modifier.size(20.dp),
-                                            tint = if (isPinned) Color(0xFFFFD700) else LocalContentColor.current
+                                            tint = if (isPinned) IosTheme.colors.yellow else LocalContentColor.current
                                         )
                                     }
                                 }
@@ -858,7 +916,7 @@ fun TimetableScreen(
 
             HorizontalDivider(
                 modifier = Modifier.padding(top = 4.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
+                color = IosTheme.colors.separatorSoft
             )
 
             // ── Content area ────────────────────────────────────────────
@@ -893,13 +951,14 @@ fun TimetableScreen(
                     ) {
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer
-                            )
+                                containerColor = IosTheme.colors.redWash
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
                                     text = errorMessage ?: "An unexpected error occurred",
-                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                    color = IosTheme.colors.red
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 OutlinedButton(onClick = {
@@ -927,14 +986,14 @@ fun TimetableScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 "No classes this week",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                style = IosType.headline,
+                                color = IosTheme.colors.secondaryLabel
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 "Try navigating to an academic term week.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                style = IosType.callout,
+                                color = IosTheme.colors.secondaryLabel.copy(alpha = 0.7f),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -946,62 +1005,205 @@ fun TimetableScreen(
         }
     }
 
-    // ── Timetable change notification dialog ─────────────────────────────────
+    // ── Timetable change details (opened from the banner, never on its own) ───
     if (showChangesDialog && timetableChanges.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { showChangesDialog = false },
-            title = { Text("📋 Timetable Changes") },
-            text = {
-                Column(
-                    modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())
-                ) {
-                    timetableChanges.forEachIndexed { index, change ->
-                        val icon = when (change.type) {
-                            ChangeType.ADDED -> "🟢"
-                            ChangeType.REMOVED -> "🔴"
-                            ChangeType.MODIFIED -> "🟡"
-                        }
-                        val typeLabel = when (change.type) {
-                            ChangeType.ADDED -> "New"
-                            ChangeType.REMOVED -> "Removed"
-                            ChangeType.MODIFIED -> "Modified"
-                        }
-                        Column(modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("$icon ", style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "${change.day} ${change.timeRange}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                "${change.moduleCode} — ${change.title}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                "${change.description} ($typeLabel)",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        if (index < timetableChanges.lastIndex) {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showChangesDialog = false }) {
-                    Text("OK")
-                }
-            }
+        TimetableChangesDialog(
+            changes = timetableChanges,
+            onDismiss = { showChangesDialog = false },
         )
     }
+}
+
+// ── Timetable changes: banner + expandable details ──────────────────────────
+
+/**
+ * Compact, tappable prompt shown after a refresh that found changes.
+ *
+ * Replaces the dialog that used to open itself: the same information, but the student decides when
+ * to look at it, and the timetable stays in view.
+ */
+@Composable
+private fun TimetableChangesBanner(
+    count: Int,
+    onReview: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = IosTheme.colors
+    Surface(modifier = Modifier.fillMaxWidth(), color = colors.accentWash) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Notifications,
+                contentDescription = null,
+                tint = colors.accent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onReview() }
+                    .padding(vertical = 8.dp)
+            ) {
+                Text(
+                    if (count == 1) "1 timetable change" else "$count timetable changes",
+                    style = IosType.footnote,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.label,
+                )
+                Text("Tap to review", style = IosType.caption1, color = colors.secondaryLabel)
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Dismiss",
+                    tint = colors.secondaryLabel,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The change details: one compact row per class, expanded on tap to the fields that changed.
+ *
+ * The old dialog printed a semicolon-joined sentence per change for the whole batch at once
+ * ("Room: A214 → B102; Lecturer: X → Y (Modified)"). Here each class shows only its headline until
+ * asked, so a large refresh reads as a short, scannable list instead of a wall of text.
+ */
+@Composable
+private fun TimetableChangesDialog(
+    changes: List<TimetableChange>,
+    onDismiss: () -> Unit,
+) {
+    val expanded = remember(changes) { mutableStateOf(setOf<Int>()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(if (changes.size == 1) "Timetable change" else "${changes.size} timetable changes")
+        },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())
+            ) {
+                changes.forEachIndexed { index, change ->
+                    TimetableChangeRow(
+                        change = change,
+                        expanded = index in expanded.value,
+                        onToggle = {
+                            expanded.value =
+                                if (index in expanded.value) expanded.value - index
+                                else expanded.value + index
+                        },
+                    )
+                    if (index < changes.lastIndex) {
+                        IosDivider(startIndent = 16.dp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+    )
+}
+
+@Composable
+private fun TimetableChangeRow(
+    change: TimetableChange,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    val colors = IosTheme.colors
+    val (icon, tint) = when (change.type) {
+        ChangeType.ADDED -> Icons.Filled.AddCircle to colors.green
+        ChangeType.REMOVED -> Icons.Filled.Cancel to colors.red
+        ChangeType.MODIFIED -> Icons.Filled.Edit to colors.orange
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "${change.moduleCode} — ${change.title}",
+                    style = IosType.subhead,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.label,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${change.day} · ${change.timeRange} · ${changeSummary(change)}",
+                    style = IosType.footnote,
+                    color = colors.secondaryLabel,
+                )
+            }
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Hide details" else "Show details",
+                tint = colors.tertiaryLabel,
+                modifier = Modifier.size(20.dp).rotate(if (expanded) 180f else 0f),
+            )
+        }
+        if (expanded && change.details.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 28.dp, end = 4.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                change.details.forEach { detail ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            detail.label,
+                            style = IosType.footnote,
+                            color = colors.secondaryLabel,
+                            modifier = Modifier.width(72.dp),
+                        )
+                        Text(
+                            detailValue(detail),
+                            style = IosType.footnote,
+                            color = colors.label,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Short headline for a change, given its type and the fields behind it. */
+private fun changeSummary(change: TimetableChange): String = when (change.type) {
+    ChangeType.ADDED -> "New class"
+    ChangeType.REMOVED -> "Cancelled"
+    ChangeType.MODIFIED -> {
+        val labels = change.details.map { it.label }
+        when {
+            labels.isEmpty() -> "Changed"
+            labels == listOf("Time") -> "Time moved"
+            else -> labels.joinToString(", ") + " changed"
+        }
+    }
+}
+
+/** "A214 → B102" for a changed field, or the single value for an added/removed class's fact. */
+private fun detailValue(detail: TimetableChangeDetail): String = when {
+    detail.from != null && detail.to != null -> "${detail.from} → ${detail.to}"
+    else -> detail.from ?: detail.to ?: "—"
 }
  
 // ── Cache status bar / Offline warning ──────────────────────────────────────
@@ -1018,9 +1220,9 @@ fun TimetableScreen(
 @Composable
 private fun CacheStatusBar(source: CacheSource) {
     val (text, color) = when (source) {
-        CacheSource.CACHE_FRESH -> "📦 Loaded from cache" to MaterialTheme.colorScheme.primary
-        CacheSource.CACHE_STALE -> "⚠️ Offline / Cached Mode — data may be outdated" to MaterialTheme.colorScheme.error
-        CacheSource.NETWORK -> "🌐 Updated from server" to MaterialTheme.colorScheme.tertiary
+        CacheSource.CACHE_FRESH -> "📦 Loaded from cache" to IosTheme.colors.accent
+        CacheSource.CACHE_STALE -> "⚠️ Offline / Cached Mode — data may be outdated" to IosTheme.colors.red
+        CacheSource.NETWORK -> "🌐 Updated from server" to IosTheme.colors.purple
     }
 
     Surface(
@@ -1030,7 +1232,7 @@ private fun CacheStatusBar(source: CacheSource) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelSmall,
+                style = IosType.caption1,
                 color = color,
                 fontWeight = FontWeight.Medium
             )
@@ -1038,9 +1240,8 @@ private fun CacheStatusBar(source: CacheSource) {
                 Text(
                     text = "Network request failed — showing last cached version. " +
                             "Your sync interval may still be active.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = color.copy(alpha = 0.7f),
-                    fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.85f
+                    style = IosType.caption1,
+                    color = color.copy(alpha = 0.7f)
                 )
             }
         }
@@ -1062,8 +1263,8 @@ private fun EventsContent(
         ) {
             Text(
                 "No classes on ${days[selectedDayIndex]}",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = IosType.body,
+                color = IosTheme.colors.secondaryLabel
             )
         }
     } else {
@@ -1131,7 +1332,7 @@ private fun DayTabItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .minimumInteractiveComponentSize()
-            .clip(SquircleShape(IosRadius.medium))
+            .clip(RoundedCornerShape(IosRadius.medium))
             .background(bgColor)
             .iosPressable(pressedScale = 0.94f, haptic = isSelected.not(), interactionSource = interactionSource)
             .clickable(
@@ -1143,13 +1344,13 @@ private fun DayTabItem(
     ) {
         Text(
             day,
-            style = MaterialTheme.typography.labelSmall,
+            style = IosType.caption1,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             color = textColor
         )
         Text(
             date,
-            style = MaterialTheme.typography.titleMedium,
+            style = IosType.headline,
             fontWeight = FontWeight.Bold,
             color = textColor
         )
@@ -1159,7 +1360,7 @@ private fun DayTabItem(
                     .padding(top = 4.dp)
                     .size(6.dp)
                     .clip(RoundedCornerShape(3.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                    .background(IosTheme.colors.accent.copy(alpha = 0.6f))
             )
         }
     }
@@ -1169,7 +1370,7 @@ private fun DayTabItem(
 
 @Composable
 private fun TimetableEventCard(event: TimetableEvent) {
-    val accentColor = colorForType(event.type)
+    val accentColor = colorForType(event.type, IosTheme.colors)
 
     Row(
         modifier = Modifier
@@ -1190,11 +1391,11 @@ private fun TimetableEventCard(event: TimetableEvent) {
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            // iOS puts almost no elevation inside content: surfaces separate by fill and grouping,
-            // not by shadow. A 2dp-raised card is the Material idiom and reads as "not iOS".
             colors = CardDefaults.cardColors(containerColor = IosTheme.colors.secondarySystemBackground),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = SquircleShape(IosRadius.card)
+            // Raised, so the card separates by shadow as well as by being a different fill from the
+            // screen behind it.
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            shape = RoundedCornerShape(IosRadius.card)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 // Module code + type badge
@@ -1205,7 +1406,7 @@ private fun TimetableEventCard(event: TimetableEvent) {
                 ) {
                     Text(
                         event.moduleCode,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = IosType.subhead,
                         fontWeight = FontWeight.SemiBold,
                         color = accentColor
                     )
@@ -1216,7 +1417,7 @@ private fun TimetableEventCard(event: TimetableEvent) {
                         Text(
                             event.type,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = IosType.caption1,
                             fontWeight = FontWeight.Medium,
                             color = accentColor
                         )
@@ -1228,7 +1429,7 @@ private fun TimetableEventCard(event: TimetableEvent) {
                 // Title
                 Text(
                     event.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = IosType.subhead,
                     fontWeight = FontWeight.Bold
                 )
 
@@ -1237,9 +1438,9 @@ private fun TimetableEventCard(event: TimetableEvent) {
                 // Time
                 Text(
                     event.timeRange,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = IosType.callout,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = IosTheme.colors.accent
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -1247,8 +1448,8 @@ private fun TimetableEventCard(event: TimetableEvent) {
                 // Lecturer
                 Text(
                     "\uD83D\uDC68\u200D\uD83C\uDFEB ${event.lecturer}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = IosType.footnote,
+                    color = IosTheme.colors.secondaryLabel
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -1264,18 +1465,19 @@ private fun TimetableEventCard(event: TimetableEvent) {
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         event.room,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = IosType.caption1,
+                        color = IosTheme.colors.secondaryLabel
                     )
                 }
 
-                // Group (if present)
-                if (event.group.isNotBlank()) {
+                // Cohort, when there is one — shown in the institution's own spelling.
+                val cohort = event.groupLabel.ifBlank { event.group }
+                if (cohort.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        event.group,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        cohort,
+                        style = IosType.caption1,
+                        color = IosTheme.colors.secondaryLabel.copy(alpha = 0.7f)
                     )
                 }
             }

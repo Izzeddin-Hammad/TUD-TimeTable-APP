@@ -77,10 +77,12 @@ internal object TimetableParser {
         var room = ev.optString("Location", "")
             .replace(BRACKET_REGEX, "").trim()
 
-        // Resolve the cohort: Class Group wins, the name-derived segment is the fallback, and
-        // both are normalised through GroupMatcher so compound cohorts ("G1+G2", "G2, G1")
-        // parse identically here, in the UI filter, and in the diff engine.
-        val group = GroupMatcher.format(classGroup.ifBlank { nameGroup })
+        // Resolve the cohort twice over, deliberately. `group` is the canonical form that identity
+        // and matching use, so "G2, G1" and "G1 + G2" stay the same event here, in the UI filter,
+        // and in the diff engine. `groupLabel` keeps the institution's own spelling for display,
+        // because a student needs to recognise the cohort their timetable printed.
+        val rawGroup = classGroup.ifBlank { nameGroup }.trim()
+        val group = GroupMatcher.format(rawGroup)
 
         return ApiEvent(
             module_code = moduleCode.trim(),
@@ -90,7 +92,8 @@ internal object TimetableParser {
             room        = room.trim(),
             start       = start.trim(),
             end         = end.trim(),
-            group       = group.trim()
+            group       = group,
+            groupLabel  = rawGroup
         )
     }
 }

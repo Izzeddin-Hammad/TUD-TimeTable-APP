@@ -124,6 +124,43 @@ class TimetableUtilsTest {
         assertEquals("", result.day)
     }
 
+    // ── upstream serialises UTC; the UI must show Irish local time ─────────────
+
+    @Test
+    fun `toUiEvent converts a UTC timestamp to Irish local time in summer`() {
+        // The Scientia API sends a 09:00 lecture as "08:00+00:00". 2026-09-14 is Irish Summer Time
+        // (UTC+1), so rendering the UTC clock verbatim showed it an hour early.
+        val event = ApiEvent("MATH", "Discrete Maths", "Lec", "Staff", "Room",
+            "2026-09-14T08:00:00+00:00", "2026-09-14T09:00:00+00:00", "")
+        val result = TimetableUtils.toUiEvent(event, "2026-09-14")
+
+        assertEquals("09:00 - 10:00", result.timeRange)
+        assertEquals("Mon", result.day)
+        assertEquals(0, result.dayIndex)
+    }
+
+    @Test
+    fun `toUiEvent leaves a UTC timestamp unchanged in winter`() {
+        // 2026-12-07 is GMT (UTC+0), so the conversion is a no-op — nothing else moves.
+        val event = ApiEvent("MATH", "Discrete Maths", "Lec", "Staff", "Room",
+            "2026-12-07T09:00:00+00:00", "2026-12-07T10:00:00+00:00", "")
+        val result = TimetableUtils.toUiEvent(event, "2026-12-07")
+
+        assertEquals("09:00 - 10:00", result.timeRange)
+    }
+
+    @Test
+    fun `toUiEvent handles the Z designator and non-UTC offsets by instant`() {
+        val zulu = ApiEvent("M", "T", "Lec", "S", "R",
+            "2026-09-14T08:00:00Z", "2026-09-14T09:00:00Z", "")
+        assertEquals("09:00 - 10:00", TimetableUtils.toUiEvent(zulu, "2026-09-14").timeRange)
+
+        // 08:00 at +02:00 is 06:00 UTC, i.e. 07:00 in Irish summer time.
+        val positive = ApiEvent("M", "T", "Lec", "S", "R",
+            "2026-09-14T08:00:00+02:00", "2026-09-14T09:00:00+02:00", "")
+        assertEquals("07:00 - 08:00", TimetableUtils.toUiEvent(positive, "2026-09-14").timeRange)
+    }
+
     // ── getCurrentMonday ───────────────────────────────────────────────
 
     @Test

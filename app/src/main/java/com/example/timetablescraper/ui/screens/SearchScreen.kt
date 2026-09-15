@@ -23,7 +23,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +33,8 @@ import com.example.timetablescraper.api.GroupMatcher
 import com.example.timetablescraper.api.SearchResult
 import com.example.timetablescraper.api.TimetableApiService
 import com.example.timetablescraper.api.cache.SearchHistoryEntity
+import com.example.timetablescraper.ui.theme.IosTheme
+import com.example.timetablescraper.ui.theme.IosType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -179,13 +180,14 @@ fun SearchScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
+                            containerColor = IosTheme.colors.redWash
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
                         Text(
                             text = errorMessage ?: "An unexpected error occurred",
                             modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            color = IosTheme.colors.red
                         )
                     }
                 }
@@ -198,8 +200,8 @@ fun SearchScreen(
                     ) {
                         Text(
                             "No courses found for \"$query\"",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = IosType.body,
+                            color = IosTheme.colors.secondaryLabel
                         )
                     }
                 }
@@ -215,13 +217,13 @@ fun SearchScreen(
                                 Icons.Default.Search,
                                 contentDescription = null,
                                 modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                tint = IosTheme.colors.secondaryLabel.copy(alpha = 0.5f)
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 "Type a course code or name to search",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                style = IosType.body,
+                                color = IosTheme.colors.secondaryLabel.copy(alpha = 0.7f)
                             )
                         }
                     }
@@ -231,8 +233,8 @@ fun SearchScreen(
                 if (results.isNotEmpty() && !isLoading) {
                     Text(
                         "${results.size} result(s) found",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = IosType.subhead,
+                        color = IosTheme.colors.secondaryLabel,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
@@ -288,7 +290,7 @@ fun SearchScreen(
                                                             )
                                                         }
                                                         fetchedGroups = GroupMatcher.availableGroups(
-                                                            response.events.map { it.group }
+                                                            response.events.map { it.groupLabel.ifBlank { it.group } }
                                                         )
                                                     } catch (_: Exception) {
                                                         fetchedGroups = emptyList()
@@ -315,7 +317,7 @@ fun SearchScreen(
                                             contentDescription = if (isExpanded) "Collapse sub-groups"
                                                                   else "Expand sub-groups",
                                             modifier = Modifier.size(32.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            tint = IosTheme.colors.secondaryLabel
                                         )
                                     }
                                     Spacer(Modifier.width(8.dp))
@@ -328,8 +330,8 @@ fun SearchScreen(
                                         } else {
                                             "Tap to reveal course sub-groups"
                                         },
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        style = IosType.subhead,
+                                        color = IosTheme.colors.secondaryLabel
                                     )
                                 }
 
@@ -347,15 +349,15 @@ fun SearchScreen(
                                                     onCourseSelected(result, grp)
                                                     uiRefresh()
                                                 },
-                                                label = { Text(grp, style = MaterialTheme.typography.labelSmall) }
+                                                label = { Text(grp, style = IosType.caption1) }
                                             )
                                         }
                                     }
                                 } else if (isExpanded && !fetchingGroups) {
                                     Text(
                                         "No groups found for this course.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = IosType.footnote,
+                                        color = IosTheme.colors.secondaryLabel,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                                     )
                                 }
@@ -373,7 +375,7 @@ fun SearchScreen(
             title = { Text("Recent Searches") },
             text = {
                 if (historyEntries.isEmpty()) {
-                    Text("No recent searches yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("No recent searches yet.", color = IosTheme.colors.secondaryLabel)
                 } else {
                     Column(
                         modifier = Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())
@@ -391,9 +393,9 @@ fun SearchScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    Icon(Icons.Default.History, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(Icons.Default.History, null, Modifier.size(18.dp), tint = IosTheme.colors.secondaryLabel)
                                     Spacer(Modifier.width(12.dp))
-                                    Text(entry.query, style = MaterialTheme.typography.bodyLarge)
+                                    Text(entry.query, style = IosType.body)
                                 }
                                 IconButton(onClick = {
                                     coroutineScope.launch {
@@ -401,7 +403,7 @@ fun SearchScreen(
                                         historyEntries = repository.getRecentSearches()
                                     }
                                 }) {
-                                    Icon(Icons.Default.Close, "Remove", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                    Icon(Icons.Default.Close, "Remove", Modifier.size(18.dp), tint = IosTheme.colors.secondaryLabel.copy(alpha = 0.5f))
                                 }
                             }
                         }
@@ -420,12 +422,12 @@ fun SearchScreen(
                             horizontalArrangement = Arrangement.Start,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Delete, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                            Icon(Icons.Default.Delete, null, Modifier.size(18.dp), tint = IosTheme.colors.red)
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 "Delete All",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error
+                                style = IosType.body,
+                                color = IosTheme.colors.red
                             )
                         }
                     }
@@ -443,24 +445,24 @@ private fun CourseResultCard(result: SearchResult, onClick: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = result.name,
-                style = MaterialTheme.typography.titleSmall,
+                style = IosType.subhead,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AssistChip(
                     onClick = {},
-                    label = { Text(result.programme_code, style = MaterialTheme.typography.labelSmall) }
+                    label = { Text(result.programme_code, style = IosType.caption1) }
                 )
                 AssistChip(
                     onClick = {},
-                    label = { Text(result.type, style = MaterialTheme.typography.labelSmall) }
+                    label = { Text(result.type, style = IosType.caption1) }
                 )
             }
         }

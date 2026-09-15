@@ -6,6 +6,7 @@ import com.example.timetablescraper.api.cache.CachedEventEntity
 import com.example.timetablescraper.api.cache.SavedCourseEntity
 import com.example.timetablescraper.api.cache.SearchHistoryEntity
 import com.example.timetablescraper.api.cache.TimetableDatabase
+import com.example.timetablescraper.api.cache.toApiEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -166,7 +167,8 @@ class TimetableRepository(
                         room = event.room,
                         start = event.start,
                         end = event.end,
-                        group = event.group,
+                        // Store the institution's spelling; the canonical form is derived on read.
+                        group = event.groupLabel.ifBlank { event.group },
                         courseName = courseName ?: ""
                     )
                 }
@@ -207,20 +209,6 @@ class TimetableRepository(
                 }
         }
     }
-
-    /** Convert a cached entity back to an ApiEvent for the UI layer. */
-    private fun CachedEventEntity.toApiEvent() = ApiEvent(
-        id = id,
-        module_code = moduleCode,
-        title = title,
-        type = type,
-        lecturer = lecturer,
-        room = room,
-        start = start,
-        end = end,
-        group = group
-    )
-
 
     /**
      * Observe the cached week for a course.

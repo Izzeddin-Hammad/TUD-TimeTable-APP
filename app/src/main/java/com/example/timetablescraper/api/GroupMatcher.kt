@@ -35,6 +35,26 @@ object GroupMatcher {
     private val SEPARATORS = Regex("[+,;/&|]+")
 
     /**
+     * Characters that separate *several* groups named in one field (`"G1 + G2"`).
+     *
+     * `/` is deliberately absent: it joins the parts of a single hierarchical group name such as
+     * `TU859/Y3/MLAI/G2`, so splitting on it makes two unrelated cohorts ("TU859/MLAI/G2" and
+     * "TU859/CS/G2") share most of their parts and look related when they are not.
+     */
+    private val GROUP_LIST_SEPARATORS = Regex("[+,;&|]+")
+
+    /**
+     * The groups a raw field names, each exactly as written apart from surrounding whitespace.
+     *
+     * An empty list means the field names no group at all — a plenary session.
+     */
+    fun entries(raw: String?): List<String> =
+        raw.orEmpty()
+            .split(GROUP_LIST_SEPARATORS)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+    /**
      * Split a raw group field into a normalised set of uppercase tokens.
      * Blank, null and separator-only inputs yield an empty set —
      * meaning "no specific group", i.e. the whole cohort.
@@ -53,18 +73,43 @@ object GroupMatcher {
     /** True when the session is not restricted to any subgroup (a plenary class). */
     fun appliesToAll(raw: String?): Boolean = parse(raw).isEmpty()
 
-    /** Canonical display form: tokens sorted alphabetically and joined with " + ". */
-    fun format(raw: String?): String = parse(raw).sorted().joinToString(" + ")
+    /**
+     * Canonical form of a group field: each named group uppercased and sorted, joined with " + ".
+     *
+     * A hierarchical name stays whole. "TU859/Y3/MLAI/G2" is one group, so it is not broken into
+     * `TU859`/`Y3`/`MLAI`/`G2` — doing that made this form unrecognisable to [matches] and to the
+     * UI, which shows the name as written. Only the separators that list *several* groups split.
+     */
+    fun format(raw: String?): String =
+        entries(raw).map { it.uppercase(Locale.ROOT) }.sorted().joinToString(" + ")
 
     /**
-     * Distinct group tokens across a set of raw group fields, sorted for display.
+     * The distinct cohorts across a set of group fields, in the institution's own spelling.
      *
-     * Single source of truth for the filter options the UI offers: the tokens a student can pick
-     * are produced by the same parser (and compared by the same matcher) used to filter, so an
-     * offered option can never fail to match.
+     * Single source of truth for the filter options the UI offers. Three things matter:
+     *
+     *  - **The whole cohort is the unit.** These used to be the individual tokens, so a timetable
+     *    whose cohorts were `TU859/Y3/MLAI/G2` offered "TU859", "Y3", "MLAI" and "G2" as four
+     *    separate choices, and never showed the cohort the student actually recognises.
+     *  - **A list of cohorts becomes one option each — never a merged "A + B" entry.** A shared
+     *    session's field names several cohorts at once (`"TU859/Y1/G1 + TU859/Y1/G2"`, the shape
+     *    the API actually sends). Offering that whole string as a single choice read as though
+     *    `TU859/Y1/G1` had "other groups added as a +", which is not a cohort anyone is enrolled
+     *    in. [entries] splits the list into its members, so the picker offers `TU859/Y1/G1` and
+     *    `TU859/Y1/G2` separately; each still selects the shared session, because [matches] parses
+     *    the row's field the same way. The `/`-joined parts of one hierarchical name stay whole.
+     *  - **De-duplication happens on the canonical form.** Listing spellings verbatim would offer
+     *    "G2" and "g2" as different options; keying on the uppercase form collapses those while the
+     *    returned label keeps whichever spelling the timetable published first.
+     *
+     * Because [matches] parses whatever it is handed, an option produced here always matches the
+     * rows it came from.
      */
     fun availableGroups(rawGroups: List<String?>): List<String> =
-        rawGroups.flatMap { parse(it) }.distinct().sorted()
+        rawGroups
+            .flatMap { entries(it) }
+            .distinctBy { it.uppercase(Locale.ROOT) }
+            .sorted()
 
     /**
      * Should a session with [eventGroup] be shown to a student filtering on [selected]?
@@ -74,29 +119,31 @@ object GroupMatcher {
      * Rules, in the order a student expects them:
      *  1. No filter selected → show everything.
      *  2. A plenary session (blank group) → always shown, whatever the filter.
-     *  3. Otherwise → shown when the two token sets intersect (case/whitespace/separator
-     *     insensitive).
+     *  3. Otherwise → shown when the session names the selected group *as written*. Coastline
+     *     paths are whole names: "TU859/MLAI/G2" is one group, not the tokens TU859, MLAI and G2,
+     *     so it does not match "TU859/CS/G2". A field that genuinely names several groups
+     *     ("G1 + G2", the shape a shared session takes) still matches either of them.
+     *
+     * Comparison ignores case and surrounding whitespace, because upstream is loose about both
+     * (" g1 " for "G1"), but never treats two different names as one.
      */
     fun matches(eventGroup: String?, selected: String?): Boolean {
-        val wanted = parse(selected)
+        val wanted = entries(selected)
         if (wanted.isEmpty()) return true
-        val actual = parse(eventGroup)
+        val actual = entries(eventGroup)
         if (actual.isEmpty()) return true
-        return actual.any { it in wanted }
+        return actual.any { a -> wanted.any { a.equals(it, ignoreCase = true) } }
     }
 
     /**
-     * Multi-select variant: a session is shown when it applies to all cohorts, or when it
-     * intersects *any* of the selected groups (union, not intersection).
+     * Multi-select variant: a session is shown when it applies to all cohorts, or when it names
+     * *any* of the selected groups (union, not intersection).
      */
     fun matchesAny(eventGroup: String?, selected: Set<String>): Boolean {
-        val wanted = selected
-            .flatMap { parse(it) }
-            .map { it.uppercase(Locale.ROOT) }
-            .toSet()
+        val wanted = selected.flatMap { entries(it) }
         if (wanted.isEmpty()) return true
-        val actual = parse(eventGroup)
+        val actual = entries(eventGroup)
         if (actual.isEmpty()) return true
-        return actual.any { it in wanted }
+        return actual.any { a -> wanted.any { a.equals(it, ignoreCase = true) } }
     }
 }

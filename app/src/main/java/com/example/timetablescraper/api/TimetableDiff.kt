@@ -53,9 +53,9 @@ object TimetableDiff {
             for (i in 0 until paired) {
                 val old = oldList[i]
                 val new = newList[i]
-                val diffs = fieldDifferences(old, new)
-                if (diffs.isNotEmpty()) {
-                    modifications += change(ChangeType.MODIFIED, new, diffs.joinToString("; "))
+                val details = fieldDetails(old, new)
+                if (details.isNotEmpty()) {
+                    modifications += change(ChangeType.MODIFIED, new, describe(details), details)
                 }
             }
             // Surplus on the old side is genuinely gone; surplus on the new side is genuinely new.
@@ -66,8 +66,12 @@ object TimetableDiff {
         val (remainingRemovals, remainingAdditions, moves) = consolidateMoves(removals, additions)
 
         val changes = buildList {
-            remainingRemovals.forEach { add(change(ChangeType.REMOVED, it, "Class removed")) }
-            remainingAdditions.forEach { add(change(ChangeType.ADDED, it, "New class")) }
+            remainingRemovals.forEach {
+                add(change(ChangeType.REMOVED, it, "Class removed", sessionFacts(it, appeared = false)))
+            }
+            remainingAdditions.forEach {
+                add(change(ChangeType.ADDED, it, "New class", sessionFacts(it, appeared = true)))
+            }
             addAll(moves)
             addAll(modifications)
         }
@@ -85,23 +89,88 @@ object TimetableDiff {
     private const val REMOVED_DESCRIPTION = "Class removed"
     private const val ADDED_DESCRIPTION = "New class"
 
-    private fun fieldDifferences(old: ApiEvent, new: ApiEvent): List<String> = buildList {
-        if (old.room != new.room) add("Room: ${display(old.room)} → ${display(new.room)}")
-        if (old.lecturer != new.lecturer) add("Lecturer: ${display(old.lecturer)} → ${display(new.lecturer)}")
-        if (old.group != new.group) add("Group: ${display(GroupMatcher.format(old.group))} → ${display(GroupMatcher.format(new.group))}")
-        if (old.type != new.type) add("Type: ${display(old.type)} → ${display(new.type)}")
-        if (old.title != new.title) add("Title: ${display(old.title)} → ${display(new.title)}")
+    /**
+     * The individual fields that differ between the two versions of one session.
+     *
+     * Structured, not a joined string, so the UI can summarise the change and reveal the specifics
+     * only on demand. [TimetableChange.description] is derived from these ([describe]), so the two
+     * views of the same change can never drift apart.
+     */
+    private fun fieldDetails(old: ApiEvent, new: ApiEvent): List<TimetableChangeDetail> = buildList {
+        // Guard on the *rendered* values so a difference the student cannot see (whitespace, or a
+        // blank rendered as "—") never produces a no-op "X → X" row.
+        changed("Room", old.room, new.room)?.let { add(it) }
+        changed("Lecturer", old.lecturer, new.lecturer)?.let { add(it) }
+        // The cohort is compared in canonical form so upstream dialect drift ("G2, G1" vs "G1 + G2")
+        // is not a change, but shown in the institution's own spelling.
+        if (old.group != new.group) {
+            changed("Group", old.groupLabel.ifBlank { old.group }, new.groupLabel.ifBlank { new.group })
+                ?.let { add(it) }
+        }
+        changed("Type", old.type, new.type)?.let { add(it) }
+        changed("Title", old.title, new.title)?.let { add(it) }
     }
+
+    /** A field row, or `null` when the two values read the same once blank-normalised. */
+    private fun changed(label: String, old: String?, new: String?): TimetableChangeDetail? {
+        val from = display(old)
+        val to = display(new)
+        return if (from != to) TimetableChangeDetail(label, from, to) else null
+    }
+
+    /**
+     * The facts about a session that appeared ([appeared] = true) or disappeared (false).
+     *
+     * An add/remove has no "before → after", so each populated attribute is a single value — which
+     * is what lets a student recognise the class ("the Tuesday lab in A201").
+     */
+    private fun sessionFacts(event: ApiEvent, appeared: Boolean): List<TimetableChangeDetail> = buildList {
+        fun fact(label: String, value: String) {
+            add(
+                TimetableChangeDetail(
+                    label = label,
+                    from = value.takeUnless { appeared },
+                    to = value.takeIf { appeared },
+                )
+            )
+        }
+        fact("Type", display(event.type))
+        fact("Room", display(event.room))
+        fact("Lecturer", display(event.lecturer))
+        val cohort = event.groupLabel.ifBlank { event.group }
+        if (cohort.isNotBlank()) fact("Group", cohort)
+    }
+
+    /** The stable one-line form of a field-level change: "Room: A214 → B102". */
+    private fun describe(details: List<TimetableChangeDetail>): String =
+        details.joinToString("; ") { "${it.label}: ${it.from} → ${it.to}" }
 
     private fun display(value: String?): String = value?.takeIf { it.isNotBlank() } ?: "—"
 
-    private fun change(type: ChangeType, event: ApiEvent, description: String) = TimetableChange(
+    /**
+     * The wall clock a student reads, in the institution's zone.
+     *
+     * Upstream sends UTC, so [EventKey.timeOfDay] (the raw digits) is only the fallback for a value
+     * that carries no offset. The change feed must show the same times as the timetable grid, or a
+     * "moved to 12:00" alert would disagree with the class card by the DST offset.
+     */
+    private fun clockOf(raw: String): String = DublinTime.timeOfDay(raw) ?: EventKey.timeOfDay(raw)
+
+    private fun rangeOf(start: String, end: String): String = "${clockOf(start)} - ${clockOf(end)}"
+
+    private fun change(
+        type: ChangeType,
+        event: ApiEvent,
+        description: String,
+        details: List<TimetableChangeDetail> = emptyList(),
+    ) = TimetableChange(
         type = type,
         day = dayOf(event.start),
-        timeRange = "${EventKey.timeOfDay(event.start)} - ${EventKey.timeOfDay(event.end)}",
+        timeRange = rangeOf(event.start, event.end),
         moduleCode = event.module_code.ifBlank { "?" },
         title = event.title.ifBlank { "Untitled" },
         description = description,
+        details = details,
     )
 
     /**
@@ -131,11 +200,13 @@ object TimetableDiff {
                 val new = newList[i]
                 consumedRemovals += old
                 consumedAdditions += new
+                val fromRange = rangeOf(old.start, old.end)
+                val toRange = rangeOf(new.start, new.end)
                 moves += change(
                     ChangeType.MODIFIED,
                     new,
-                    "Time: ${EventKey.timeOfDay(old.start)} - ${EventKey.timeOfDay(old.end)}" +
-                        " → ${EventKey.timeOfDay(new.start)} - ${EventKey.timeOfDay(new.end)}",
+                    "Time: $fromRange → $toRange",
+                    listOf(TimetableChangeDetail("Time", fromRange, toRange)),
                 )
             }
         }
@@ -157,12 +228,13 @@ object TimetableDiff {
         event.module_code.trim().uppercase(Locale.ROOT),
     ).joinToString("|")
 
-    private fun dayOf(start: String): String = try {
-        val date = java.time.LocalDate.parse(EventKey.wallClock(start).substring(0, 10))
-        date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH)
-    } catch (_: Exception) {
-        "?"
-    }
+    private fun dayOf(start: String): String =
+        DublinTime.dayOfWeek(start) ?: try {
+            val date = java.time.LocalDate.parse(EventKey.wallClock(start).substring(0, 10))
+            date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH)
+        } catch (_: Exception) {
+            "?"
+        }
 
     private fun dayIndexOf(day: String): Int = when (day) {
         "Mon" -> 0; "Tue" -> 1; "Wed" -> 2; "Thu" -> 3; "Fri" -> 4; "Sat" -> 5; "Sun" -> 6

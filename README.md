@@ -13,8 +13,8 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Hide Empty Weeks** — Toggle in Settings to remove weeks with no classes from the dropdown (default: on). When enabled, a warning notes that semester auto-detection will not work
 - **Smart Semester Detection** — Auto-detects Semester 1 & 2 boundaries by finding a ≥21-day gap between active weeks after November
 - **Week Dropdown** — Numbered weeks (W1, W2, …) with empty weeks optionally hidden
-- **Semester Tabs** — Wide Semester 1 / Semester 2 tabs for quick semester switching
-- **Subgroup Filtering** — Select specific class groups (A, B, G1, G2, etc.) via dropdown with ⭐ default group pinning; expand unlimited search results simultaneously to compare groups across courses
+- **Semester Tabs** — An iOS segmented control for instant Semester 1 / Semester 2 switching; switching always lands in the selected semester, even when it has not been published yet
+- **Subgroup Filtering** — Pick an individual cohort (`TU859/Y3/MLAI/G2`, `G1`, …) from the dropdown, with ⭐ default-group pinning. A class shared by several cohorts still appears under each of them, and the picker never offers merged `A + B` entries; expand unlimited search results at once to compare groups across courses
 - **Pull to Refresh** — Swipe down on the timetable to force a fresh network fetch (limited to once per 24 hours)
 - **Persistent View State** — Remembers your semester, week, day tab, and group per course across app restarts
 - **Offline Cache** — Room database caches timetables per week; view your schedule even without internet
@@ -22,8 +22,9 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 
 ### Timetable Change Detection
 - **Real-Time Diff** — When the timetable refreshes from the network, the app compares old vs new data
-- **Change Popup** — Displays an AlertDialog listing every added 🟢, removed 🔴, or modified 🟡 class session
-- **Detailed Info** — Each change shows the day, time range, module code, title, and exactly what changed (e.g. "Room: A → B")
+- **Change Banner** — Finds are announced by a compact, dismissible banner ("3 timetable changes — tap to review") instead of a modal that opens itself; the timetable stays in view
+- **Compact, Expandable List** — Each class is one scannable row (name + day/time + a short summary such as "Room changed" or "Cancelled"); tap a row to reveal only the fields that changed, field by field ("Room  A214 → B102")
+- **Times match the grid** — Change times are shown in the same Irish local time as the class cards
 
 ### Pinning & Bookmarks
 - **Pin to Home** — Star a course to make it your home screen; opens instantly on launch. Only one course can be pinned at a time
@@ -38,7 +39,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
   - **Weekly** — 7-day cache TTL
   - **Custom (days)** — User-defined day interval
 - **Background Sync** — WorkManager periodically refreshes cached timetables with strategy-aware scheduling
-- **Reactive Background Sync** — UI polls Room every 2 minutes; if WorkManager updated cache, the timetable refreshes automatically
+- **Reactive Background Sync** — The screen observes the Room cache for the visible week, so a WorkManager sync repaints the timetable the moment those rows change (no polling)
 - **Granular Cache Management** — Delete individual course caches from Settings without wiping everything. Cached courses display **full names** including year and subgroup
 - **Sync Notification System** — Background sync completions post notifications with success/fail status and timestamp
 - **Client-Side Rate Limiting** — Token Bucket OkHttp interceptor (5 req/10s); returns synthetic 429 to trigger fail-safe fallback
@@ -58,7 +59,7 @@ A prototype Android timetable app that fetches your TU Dublin university schedul
 - **Resource Efficiency** — `DateTimeFormatter` instances cached globally; date parsing offloaded to `Dispatchers.Default`
 
 ### UI/UX
-- **Material 3 UI** — Jetpack Compose with dynamic color support and smooth crossfade animations
+- **iOS-style design system** — Jetpack Compose screens built on a custom iOS-style theme (colours, type and components) with light/dark support and smooth crossfade animations
 - **In-App Self-Updating** — Scans the `releases/` directory on GitHub (via Contents API) for new APK files; prompts with an update dialog when a newer version is detected
 - **Search History** — Quick re-access to recent searches with single-entry delete and "Delete All" button
 - **Auto-Focus Keyboard** — The search field gains focus and opens the keyboard automatically when the search page opens
@@ -151,17 +152,26 @@ Network calls are completely blocked if the app is opened while the cache is sti
 | HTTP 429 / 500+ | Repository `catch(Exception)` triggers stale Room cache fallback |
 | Firewall returns login page | `optJSONArray("Results") ?: JSONArray()` — graceful empty results, no crash |
 | Worker updates Room while user is viewing | The screen collects the Room `Flow` for the visible week, so it repaints when the rows change and idles otherwise (previously a 2-minute polling `LaunchedEffect`) |
-| Timezone boundary (midnight) | All `LocalDate.now()` calls use `Europe/Dublin` with safe `ZoneId` fallback |
+| Timezone boundary (midnight) | All `LocalDate.now()` calls use `Europe/Dublin` with safe `ZoneId` fallback; the API returns session times in **UTC**, so every displayed time (grid and change feed) is projected into `Europe/Dublin` first |
 
 ## Download
 
-[**Download latest APK (v1.27)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.27-debug.apk)
+[**Download latest APK (v1.28)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v1.28-debug.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
 > **If your app currently shows "Something went wrong" on launch, install this APK directly**
 > rather than using "Check for updates" — the installed build crashes before that screen is
 > reachable. Fixes a crash that affected v1.24–v1.26. Your saved courses and settings are not touched.
+
+### What's new in v1.28
+
+Fixes three timetable bugs and rebuilds the change notification. Notes: [`releases/TimeTable-v1.28.md`](releases/TimeTable-v1.28.md).
+
+- **Classes are no longer an hour early.** The API sends every session in UTC and the app rendered that clock verbatim, so every class read an hour early through Irish Summer Time (and could land on the wrong day near midnight). Times are now projected into `Europe/Dublin`, and they self-correct after the clocks change
+- **"Semester 2" always switches.** For a course whose Semester 2 is not published yet, every week in that semester is "empty", and the *Hide empty weeks* option emptied the list — so tapping Semester 2 silently left you on the other semester's week. It now lands in the chosen semester and says "No classes this week"
+- **The group picker offers cohorts, not combinations.** A shared lecture belongs to several cohorts at once, and the picker offered the whole list as one option — reading as "TU859/Y1/G1 + TU859/Y1/G2". Each cohort is now its own option, while the shared class still appears under each of them
+- **"Timetable changes" is readable.** The modal that opened itself and printed a semicolon-joined sentence per change is gone: a compact, dismissible banner offers a review, and each class is one row that expands to the fields that changed, in local time
 
 ### What's new in v1.27
 
