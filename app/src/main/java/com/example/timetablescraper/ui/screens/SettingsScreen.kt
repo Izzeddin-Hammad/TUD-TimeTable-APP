@@ -134,7 +134,12 @@ fun SettingsScreen(
             TimetableSyncWorker.syncNow(context)
             refreshCacheStats()
         } else {
+            // Denying the notification permission must not silently cancel the sync the student
+            // just asked for: the permission only gates the *notification*. Run it and say so —
+            // this used to do nothing at all, with no message.
             showPermissionRationale = true
+            TimetableSyncWorker.syncNow(context)
+            refreshCacheStats()
         }
     }
 
@@ -402,6 +407,16 @@ fun SettingsScreen(
                 Icon(Icons.Default.Sync, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Sync Now")
+            }
+
+            if (showPermissionRationale) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Notifications are off, so you won't be told when a sync finishes. The sync " +
+                        "itself still runs.",
+                    style = IosType.footnote,
+                    color = IosTheme.colors.secondaryLabel
+                )
             }
 
             // Last sync info
@@ -776,6 +791,13 @@ fun SettingsScreen(
                                         onClick = {
                                             coroutineScope.launch {
                                                 app.repository.removeCourse(saved.identity)
+                                                // Removing a saved course must also unpin it, or the
+                                                // app keeps opening a timetable that is no longer in
+                                                // the list (and the home screen still titles itself
+                                                // with it).
+                                                if (SyncPreferences.getStarredCourse(context)?.first == saved.identity) {
+                                                    SyncPreferences.setStarredCourse(context, null, null, null)
+                                                }
                                                 savedCourses = app.database.timetableDao().getSavedCourses()
                                             }
                                         },

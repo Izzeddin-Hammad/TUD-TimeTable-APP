@@ -71,6 +71,9 @@ object TimetableUtils {
 
             val dayIndex = when (dayName) {
                 "Mon" -> 0; "Tue" -> 1; "Wed" -> 2; "Thu" -> 3; "Fri" -> 4
+                // Weekends are real sessions: the day strip grows to show them when the week has
+                // one, so mapping them to "unknown" (-1) is what made them invisible.
+                "Sat" -> 5; "Sun" -> 6
                 else -> -1
             }
 

@@ -145,11 +145,21 @@ fun TimetableScreen(
 
     // ── State (persisted across app restarts via SharedPreferences) ─────
     // Restore saved view state for this course (or use defaults for new courses)
-    val savedWeekStr = SyncPreferences.getSavedWeek(context, selectedCourse.identity)
-    val savedDayIdx = SyncPreferences.getSavedDayIndex(context, selectedCourse.identity)
-    val savedSemester = SyncPreferences.getSavedSemester(context, selectedCourse.identity)
+    // Remembered: each of these copies the whole preferences map, and this screen recomposes on
+    // every tap, scroll and day change — reading them per recomposition is what made it stutter.
+    val savedWeekStr = remember(selectedCourse.identity) {
+        SyncPreferences.getSavedWeek(context, selectedCourse.identity)
+    }
+    val savedDayIdx = remember(selectedCourse.identity) {
+        SyncPreferences.getSavedDayIndex(context, selectedCourse.identity)
+    }
+    val savedSemester = remember(selectedCourse.identity) {
+        SyncPreferences.getSavedSemester(context, selectedCourse.identity)
+    }
     val savedGroup = remember(selectedCourse.identity) {
-        SyncPreferences.getLastGroup(context, selectedCourse.identity)
+        // "" is the stored form of "All groups" (see the persistence effect below); it must come
+        // back as null, not as a group literally named "".
+        SyncPreferences.getLastGroup(context, selectedCourse.identity)?.takeIf { it.isNotEmpty() }
     }
 
     val hasSavedState = savedWeekStr != null
@@ -176,6 +186,10 @@ fun TimetableScreen(
     var isLoading by remember { mutableStateOf(true) }
     var events by remember { mutableStateOf<List<TimetableEvent>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    /** A failed refresh over rows we already had — surfaced in the status strip, not as an error screen. */
+    var refreshFailed by remember { mutableStateOf(false) }
+    /** Which week the rows currently in `events` belong to. */
+    var loadedMonday by remember { mutableStateOf<String?>(null) }
     var cacheSource by remember { mutableStateOf<CacheSource?>(null) }
     var isSaved by remember { mutableStateOf(false) }
     var selectedGroup by rememberSaveable { mutableStateOf<String?>(null) }
@@ -225,7 +239,14 @@ fun TimetableScreen(
         }
     }
 
-    val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri")
+    // Mon–Fri, plus any weekend day this week actually has a class on.
+    //
+    // Weekend sessions were fetched and counted but could never match a tab, so a part-time
+    // student's Saturday class was silently invisible and its day read "No classes on Mon".
+    val days = remember(events) {
+        listOf("Mon", "Tue", "Wed", "Thu", "Fri") +
+            listOf("Sat", "Sun").filter { name -> events.any { it.day == name } }
+    }
     val coroutineScope = rememberCoroutineScope()
 
     // Apply the group filter through GroupMatcher so the matching rules live in exactly one
@@ -258,9 +279,10 @@ fun TimetableScreen(
     // privacy policy promises that nothing about them is collected — logcat counts, because it is
     // readable from a bug report or over adb.
     LaunchedEffect(selectedGroup) {
-        if (selectedGroup != null) {
-            SyncPreferences.setLastGroup(context, selectedCourse.identity, selectedGroup!!)
-        }
+        // Persist the choice *including* "All groups", stored as "". Skipping the null case meant
+        // clearing the group was forgotten, so the next visit silently re-applied the old cohort —
+        // and with the picker hidden for a single-cohort week, there was no way to see why.
+        SyncPreferences.setLastGroup(context, selectedCourse.identity, selectedGroup ?: "")
     }
 
     // ── Week classifier (cache-first, background-refresh) ──────────
@@ -289,7 +311,11 @@ fun TimetableScreen(
                 categoryTypeId = selectedCourse.timetable_type_id,
                 identity = selectedCourse.identity
             )
-            val (active, empty) = TimetableUtils.classifyWeeks(response.events, allWeeks)
+            val (active, empty) = withContext(Dispatchers.Default) {
+                // Scans every event against every week; on the main dispatcher that froze the
+                // screen for a moment on large courses.
+                TimetableUtils.classifyWeeks(response.events, allWeeks)
+            }
             activeWeeks = active
             emptyWeeks = empty
             scannedCount = allWeeks.size
@@ -316,6 +342,20 @@ fun TimetableScreen(
         // the banner from the previous course/week stayed on screen until the new fetch resolved.
         showChangesBanner = false
         timetableChanges = emptyList()
+
+        // A different week is a different timetable: drop the previous week's rows rather than
+        // leaving them on screen under the new week's dates while this one loads — and
+        // permanently, when the week is not cached and the network fails. Refreshing the *same*
+        // week keeps them, so pull-to-refresh does not blank the schedule.
+        if (mondayStr != loadedMonday) {
+            events = emptyList()
+            isLoading = true
+        }
+        loadedMonday = mondayStr
+        // Never carry a previous failure into the next week. This used to leave "No internet
+        // connection" on an empty week the student reached while very much online.
+        errorMessage = null
+        refreshFailed = false
 
         // Activate the pull-to-refresh indicator for user-initiated refreshes
         if (forceRefresh) isRefreshing = true
@@ -414,23 +454,31 @@ fun TimetableScreen(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Only show error if we didn't already show cached data in Phase 1
+            val msg = e.message ?: ""
+            val friendly = when {
+                msg.contains("Unable to resolve host", ignoreCase = true) ||
+                msg.contains("timeout", ignoreCase = true) ||
+                msg.contains("connect", ignoreCase = true) ->
+                    "No internet connection. Check your network and try again."
+                msg.contains("429") || msg.contains("Rate limited", ignoreCase = true) ->
+                    "The timetable server is busy. Try again in a few minutes."
+                msg.contains("500") || msg.contains("API error", ignoreCase = true) ->
+                    "The timetable server had a problem. Try again later."
+                else ->
+                    "Couldn't load this week's timetable. Try refreshing."
+            }
             if (events.isEmpty()) {
-                val msg = e.message ?: ""
-                errorMessage = when {
-                    msg.contains("Unable to resolve host", ignoreCase = true) ||
-                    msg.contains("timeout", ignoreCase = true) ||
-                    msg.contains("connect", ignoreCase = true) ->
-                        "No internet connection. Check your network and try again."
-                    msg.contains("API error", ignoreCase = true) ->
-                        "Server error: $msg"
-                    else ->
-                        "Failed to load timetable. Try refreshing or check back later.\n($msg)"
-                }
+                errorMessage = friendly
                 cacheSource = null
+            } else {
+                // There are cached rows on screen, so the schedule is still usable — but the
+                // student has to be told the refresh failed, or the green "Loaded from cache"
+                // banner reads as "this is current".
+                refreshFailed = true
             }
         } finally {
             isLoading = false
+            loadedMonday = mondayStr
             userPickedWeek = false
             if (forceRefresh) {
                 isRefreshing = false
@@ -474,14 +522,23 @@ fun TimetableScreen(
             }
     }
 
-            // When events change (new week loaded), keep the current day selected
-            // if it still has events; otherwise jump to the first available day.
-    LaunchedEffect(displayEvents) {
+    // A saved day index from a week that had a Saturday must not leave the strip with nothing
+    // selected when this week has none.
+    LaunchedEffect(days) {
+        if (selectedDayIndex !in days.indices) selectedDayIndex = 0
+    }
+
+            // When the *week* changes, keep the current day if it has classes and otherwise jump
+            // to the first that does.
+            //
+            // Keyed on the week, not on the event list: keying on the list meant any refresh or
+            // group change yanked the student off the day they had deliberately chosen.
+    LaunchedEffect(currentMonday) {
         if (displayEvents.isNotEmpty()) {
             val stillHasEvents = displayEvents.any { it.dayIndex == selectedDayIndex }
             if (!stillHasEvents) {
                 val firstDay = displayEvents.minByOrNull { it.dayIndex }?.dayIndex ?: 0
-                selectedDayIndex = firstDay.coerceIn(0, 4)
+                selectedDayIndex = firstDay.coerceIn(0, days.lastIndex)
             }
         }
     }
@@ -606,6 +663,10 @@ fun TimetableScreen(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     when {
+                        refreshFailed -> NoticeBar(
+                            text = "⚠️ Couldn't refresh — showing the saved timetable.",
+                            color = IosTheme.colors.red,
+                        )
                         showChangesBanner && timetableChanges.isNotEmpty() -> TimetableChangesBanner(
                             count = timetableChanges.size,
                             onReview = { showChangesDialog = true },
@@ -637,13 +698,19 @@ fun TimetableScreen(
             val autoFirstWeek = sortedActiveWeeks.firstOrNull()
 
             // 2. Auto-detect Semester 2 — works immediately, not gated on scanner finish.
-            //    Looks for a ≥21-day gap between confirmed active weeks after November.
+            //    The Christmas break is the S1/S2 boundary: a long gap whose second week falls in
+            //    the new year.
+            //    This used to require *both* weeks to be November-or-later, which excluded January
+            //    — the December → January gap could therefore never be found, and the heuristic
+            //    never fired at all.
             val autoSem2Start = remember(sortedActiveWeeks) {
-                val gap = sortedActiveWeeks
-                    .filter { it.monthValue >= 11 }     // only consider from November onward
+                sortedActiveWeeks
                     .windowed(2)
-                    .firstOrNull { (a, b) -> java.time.temporal.ChronoUnit.DAYS.between(a, b) >= 21 }
-                gap?.get(1)  // the week AFTER the gap is Sem 2 start
+                    .firstOrNull { (a, b) ->
+                        b.monthValue in 1..2 &&
+                            java.time.temporal.ChronoUnit.DAYS.between(a, b) >= 21
+                    }
+                    ?.get(1)  // the week AFTER the gap is Sem 2 start
             }
 
             // 3. Override configs and fixed fallbacks
@@ -785,7 +852,7 @@ fun TimetableScreen(
                     onExpandedChange = { weekMenuExpanded = it },
                     modifier = Modifier.weight(1f)
                 ) {
-                    val weekNum = visibleWeeks.indexOf(displayMonday).let { if (it >= 0) it + 1 else null }
+                    val weekNum = allAcademicWeeks.indexOf(displayMonday).let { if (it >= 0) it + 1 else null }
                     val label = if (weekNum != null) "W$weekNum · ${TimetableUtils.formatWeekRange(displayMonday)}"
                                 else TimetableUtils.formatWeekRange(displayMonday)
                     OutlinedTextField(
@@ -812,7 +879,7 @@ fun TimetableScreen(
                             DropdownMenuItem(
                                 text = {
                                     Text(
-                                        "Week ${index + 1} · ${TimetableUtils.formatWeekRange(monday)}",
+                                        "Week ${allAcademicWeeks.indexOf(monday) + 1} · ${TimetableUtils.formatWeekRange(monday)}",
                                         fontWeight = if (monday == currentMonday) FontWeight.Bold else FontWeight.Normal
                                     )
                                 },
@@ -836,7 +903,7 @@ fun TimetableScreen(
             // week has, and having ~170 px of filter appear or vanish in one frame is the same
             // complaint as the status strip above — the timetable jumps under the finger.
             AnimatedVisibility(
-                visible = availableGroups.size > 1,
+                visible = selectedGroup != null || availableGroups.size > 1,
                 enter = expandVertically(animationSpec = Motion.gentle()),
                 exit = shrinkVertically(animationSpec = Motion.gentle()),
             ) {
@@ -1265,15 +1332,21 @@ private fun CacheStatusBar(source: CacheSource) {
 
 /** The pull-to-refresh cooldown, shown in the same reserved strip as the other status messages. */
 @Composable
-private fun RefreshRateLimitedBar() {
-    val color = IosTheme.colors.purple
+private fun RefreshRateLimitedBar() = NoticeBar(
+    text = "⏳ Refreshed recently — you can refresh again in 24 hours.",
+    color = IosTheme.colors.purple,
+)
+
+/** A one-line status notice for the reserved strip above the timetable. */
+@Composable
+private fun NoticeBar(text: String, color: Color) {
     Surface(modifier = Modifier.fillMaxSize(), color = color.copy(alpha = 0.12f)) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "⏳ Refreshed recently — you can refresh again in 24 hours.",
+                text = text,
                 style = IosType.caption1,
                 color = color,
                 fontWeight = FontWeight.Medium,

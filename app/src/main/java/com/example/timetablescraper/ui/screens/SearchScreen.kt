@@ -8,6 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -88,7 +89,7 @@ fun SearchScreen(
         onStateChange(query, emptyList(), true, null, true)
 
         try {
-            val response = TimetableApiService.DEFAULT.searchCourses(query)
+            val response = TimetableApiService.DEFAULT.searchCourses(query.trim())
             if (query == capturedQuery) {
                 onStateChange(query, response.results, false, null, true)
                 coroutineScope.launch { repository.recordSearch(query) }
@@ -240,11 +241,22 @@ fun SearchScreen(
 
                     val expandedIdentities = remember { mutableStateOf(setOf<String>()) }
 
-                    LazyColumn(
+                    // A blank or duplicated `identity` from upstream would otherwise throw
+    // "Key … was already used" and take the entire results list down. De-duplicating only where
+    // needed keeps a unique identity untouched (and therefore stable across recompositions).
+    val resultKeys = remember(results) {
+        val seen = mutableSetOf<String>()
+        results.map { result ->
+            val base = result.identity.ifBlank { result.name }
+            if (seen.add(base)) base else "$base#${seen.size}"
+        }
+    }
+
+    LazyColumn(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(results, key = { it.identity }) { result ->
+                        itemsIndexed(results, key = { index, _ -> resultKeys[index] }) { index, result ->
                             val isExpanded = result.identity in expandedIdentities.value
                             var fetchedGroups by remember { mutableStateOf<List<String>>(emptyList()) }
                             var fetchingGroups by remember { mutableStateOf(false) }

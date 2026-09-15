@@ -53,12 +53,15 @@ class TimetableUtilsTest {
     }
 
     @Test
-    fun `toUiEvent handles Saturday as unknown day`() {
+    fun `toUiEvent gives Saturday its own day index`() {
+        // Saturday sessions are real — part-time cohorts have them — and the day strip grows to
+        // include Saturday when the week has one. Mapping it to "unknown" (-1) is what used to make
+        // those classes invisible.
         val event = ApiEvent("TU859", "Title", "Lec", "Staff", "Room",
             "2025-10-11T10:00:00", "2025-10-11T12:00:00", "")
         val result = TimetableUtils.toUiEvent(event, "2025-10-06")
         assertEquals("Sat", result.day)
-        assertEquals(-1, result.dayIndex)
+        assertEquals(5, result.dayIndex)
     }
 
     @Test

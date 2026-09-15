@@ -28,6 +28,9 @@ object LocalData {
         // theme and custom hue, and the update download id.
         runCatching { SyncPreferences.clearAllPreferences(context) }
 
+        // …and the update bookkeeping, which lives in its own preferences file.
+        runCatching { UpdateManager.clearPrefs(context) }
+
         // The crash marker that lives in filesDir (clearCrashFlag also drops the preference copy).
         runCatching { CrashHandler.clearCrashFlag(context) }
 

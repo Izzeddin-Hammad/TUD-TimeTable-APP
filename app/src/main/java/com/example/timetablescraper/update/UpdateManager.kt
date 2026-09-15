@@ -36,6 +36,16 @@ object UpdateManager {
     private const val KEY_DOWNLOAD_ID = "last_download_id"
 
     /**
+     * Forget the in-progress download id.
+     *
+     * It lives in its own preferences file, so "Erase all app data" — which clears the sync
+     * preferences — would otherwise leave this one behind.
+     */
+    fun clearPrefs(context: Context) {
+        runCatching { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply() }
+    }
+
+    /**
      * Start downloading the APK from [downloadUrl].
      *
      * Saves to the app's external files directory under `Downloads/`.

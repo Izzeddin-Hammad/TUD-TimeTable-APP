@@ -163,7 +163,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v2.1)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.1-release.apk)
+[**Download latest APK (v2.2)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.2-release.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
@@ -173,6 +173,15 @@ Network calls are completely blocked if the app is opened while the cache is sti
 > refuses to install a differently-signed package over an existing one. Uninstalling clears the
 > local data (pinned course, bookmarks, settings) — re-pin your course once and you are set. Every
 > update *after* this one installs in place.
+
+### What's new in v2.2
+
+A student-facing bug sweep: six agents walked the app as a student would (first run, the core loop, every empty/error/offline state, careless input, settings persistence, dates, long sessions). Notes: [`releases/TimeTable-v2.2.md`](releases/TimeTable-v2.2.md).
+
+- **Switching week no longer shows the previous week's classes** under the new week's dates — which, when the week wasn't cached and the network failed, used to stay that way permanently
+- **Semester 2 is actually auto-detected now** (the boundary heuristic could never find the December → January gap), **weekend classes are visible** (Saturday used to be dropped), and week numbers no longer shift when a setting changes
+- **Stale states cleaned up:** a previous error no longer sticks to later weeks, a failed refresh over cached data is now stated instead of hidden behind "Loaded from cache", and the group picker no longer disappears while its filter stays applied
+- Plus: removing a saved course unpins it, search queries are trimmed, denying notifications no longer silently cancels a sync, and technical error text is replaced with plain English
 
 ### What's new in v2.1
 
