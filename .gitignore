@@ -39,3 +39,6 @@ tools/ui-sweep.py
 keystore.properties
 *.jks
 *.keystore
+
+# Workspace-local ANDROID_USER_HOME (instrumented tests when ~/.android is not writable)
+.android-local/

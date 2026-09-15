@@ -163,7 +163,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v2.2)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.2-release.apk)
+[**Download latest APK (v2.3)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.3-release.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
@@ -173,6 +173,14 @@ Network calls are completely blocked if the app is opened while the cache is sti
 > refuses to install a differently-signed package over an existing one. Uninstalling clears the
 > local data (pinned course, bookmarks, settings) — re-pin your course once and you are set. Every
 > update *after* this one installs in place.
+
+### What's new in v2.3
+
+Twenty courses drawn at random from the whole TU Dublin timetable, each fetched from the live API and checked end to end. Notes: [`releases/TimeTable-v2.3.md`](releases/TimeTable-v2.3.md).
+
+- **A room could read `"null"`** — upstream sends a JSON null for some sessions and it was rendered literally
+- **Two name shapes are in use**, and the parser assumed only one, so some sessions showed `SPEC 9270 — SPEC 9270(20253C) Lab support` instead of `SPEC 9270 — Machine Learning`
+- Both fixed, both covered by instrumented tests, and the sweep also confirmed how much **Saturday teaching** there is (one course has 35 weekend sessions)
 
 ### What's new in v2.2
 

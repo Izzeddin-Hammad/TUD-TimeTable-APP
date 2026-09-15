@@ -15,6 +15,17 @@ internal object TimetableParser {
     private val BRACKET_REGEX = Regex("""\s*\(\d+\)$""")
 
     /**
+     * A string field, treating a JSON `null` as absent.
+     *
+     * `optString` returns the **literal text `"null"`** for a value that is present but null (the
+     * sentinel object is not a Java null, so it survives the `!= null` check and gets stringified).
+     * Upstream genuinely sends `"Location": null` — 12 of the 186 sessions in one real course — and
+     * the card rendered the room as "null".
+     */
+    private fun JSONObject.text(name: String): String =
+        if (isNull(name)) "" else optString(name, "")
+
+    /**
      * Parse a single event JSON object from the API response into an [ApiEvent].
      *
      * Event name pattern:
@@ -23,9 +34,9 @@ internal object TimetableParser {
      * ExtraProperties may contain Staff, Module, Class Group.
      */
     fun parseApiEvent(ev: JSONObject): ApiEvent {
-        val start = ev.optString("StartDateTime", "")
-        val end   = ev.optString("EndDateTime", "")
-        val name  = ev.optString("Name", "")
+        val start = ev.text("StartDateTime")
+        val end   = ev.text("EndDateTime")
+        val name  = ev.text("Name")
         val parts = name.split("/")
 
         var moduleCode = ""
@@ -39,9 +50,22 @@ internal object TimetableParser {
         var classGroup  = ""
 
         if (parts.size >= 2) {
-            val codeMatch = CODE_REGEX.find(parts[0])
-            if (codeMatch != null) moduleCode = codeMatch.value.trim()
-            title = parts[1].trim()
+            val codeInFirst = CODE_REGEX.find(parts[0])
+            if (codeInFirst != null) moduleCode = codeInFirst.value.trim()
+
+            // Two name shapes are in live use, and the code is not always first:
+            //   "CMPU H1012(X0025)/Infrastructure/Lab/Sem1"        code first, title second
+            //   "Machine Learning /SPEC 9270(20253C) Lab support"  title first, code second
+            // Assuming the first shape put the wrong text in both fields for the second: the card
+            // read "SPEC 9270 — SPEC 9270(20253C) Lab support" instead of "SPEC 9270 — Machine
+            // Learning".
+            val codeInSecond = if (codeInFirst == null) CODE_REGEX.find(parts[1]) else null
+            if (codeInSecond != null) {
+                moduleCode = codeInSecond.value.trim()
+                title = parts[0].trim()
+            } else {
+                title = parts[1].trim()
+            }
 
             val semIndex = parts.indexOfLast { it.trim().matches(SEM_REGEX) }
 
@@ -59,22 +83,22 @@ internal object TimetableParser {
         if (extraProps != null) {
             for (k in 0 until extraProps.length()) {
                 val prop = extraProps.getJSONObject(k)
-                when (prop.optString("Name", "")) {
-                    "Staff" -> if (lecturer.isEmpty()) lecturer = prop.optString("Value", "")
+                when (prop.text("Name")) {
+                    "Staff" -> if (lecturer.isEmpty()) lecturer = prop.text("Value")
                     "Module" -> if (moduleCode.isEmpty()) {
-                        val mc = CODE_REGEX.find(prop.optString("Value", ""))
+                        val mc = CODE_REGEX.find(prop.text("Value"))
                         if (mc != null) moduleCode = mc.value.trim()
                     }
                     "Class Group" -> if (classGroup.isEmpty()) {
                         // Authoritative: recorded even when the name already yielded a
                         // subgroup, because the name carries only a coarse segment.
-                        classGroup = prop.optString("Value", "").trim()
+                        classGroup = prop.text("Value").trim()
                     }
                 }
             }
         }
 
-        var room = ev.optString("Location", "")
+        var room = ev.text("Location")
             .replace(BRACKET_REGEX, "").trim()
 
         // Resolve the cohort twice over, deliberately. `group` is the canonical form that identity

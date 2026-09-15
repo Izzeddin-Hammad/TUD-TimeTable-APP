@@ -266,4 +266,55 @@ class TimetableParserTest {
         val event = TimetableParser.parseApiEvent(json)
         assertEquals("Room B", event.room)
     }
+
+    @Test
+    fun a_null_Location_is_absent_not_the_text_null() {
+        // Real data: 12 of the 186 sessions in TU060/1 arrive with `"Location": null`, and
+        // `optString` turns that sentinel into the literal text "null" — so a card showed its room
+        // as "null" instead of falling back to "TBA".
+        val json = JSONObject().apply {
+            put("Name", "SPEC 9270(20253C)/Machine Learning/Lec/Sem2")
+            put("Location", JSONObject.NULL)
+        }
+        val event = TimetableParser.parseApiEvent(json)
+        assertEquals("", event.room)
+    }
+
+    @Test
+    fun a_null_Name_does_not_crash_or_leak_the_text_null() {
+        val json = JSONObject().apply {
+            put("Name", JSONObject.NULL)
+            put("StartDateTime", "2027-01-28T19:00:00+00:00")
+        }
+        val event = TimetableParser.parseApiEvent(json)
+        assertEquals("", event.module_code)
+        assertEquals("", event.title)
+    }
+
+    @Test
+    fun a_name_with_the_code_in_the_second_segment_keeps_the_informative_title() {
+        // Real data: "Machine Learning /SPEC 9270(20253C) Lab support" — the module code is in the
+        // *second* segment. Assuming the usual "code/title/…" order made the card read
+        // "SPEC 9270 — SPEC 9270(20253C) Lab support".
+        val json = JSONObject().apply {
+            put("Name", "Machine Learning /SPEC 9270(20253C) Lab support")
+            put("Location", JSONObject.NULL)
+        }
+        val event = TimetableParser.parseApiEvent(json)
+        assertEquals("SPEC 9270", event.module_code)
+        assertEquals("Machine Learning", event.title)
+    }
+
+    @Test
+    fun the_usual_code_first_name_shape_is_unchanged() {
+        val json = JSONObject().apply {
+            put("Name", "CMPU H1012(X0025)/Infrastructure/Lab/Sem1")
+            put("Location", "TMain231 - Computer Lab (40)")
+        }
+        val event = TimetableParser.parseApiEvent(json)
+        assertEquals("CMPU H1012", event.module_code)
+        assertEquals("Infrastructure", event.title)
+        assertEquals("Lab", event.type)
+        assertEquals("TMain231 - Computer Lab", event.room)
+    }
 }
