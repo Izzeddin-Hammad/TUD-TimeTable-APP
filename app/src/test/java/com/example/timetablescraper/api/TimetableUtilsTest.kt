@@ -365,4 +365,76 @@ class TimetableUtilsTest {
         assertEquals("", result.day) // date parsing fails gracefully
         assertNotNull(result.timeRange)
     }
+
+    // ── Conflict detection & Invalid Time Handling ─────────────────────
+
+    @Test
+    fun `toUiEvent flags invalid time when end is before start`() {
+        val event = ApiEvent(
+            module_code = "TU859", title = "Maths", type = "Lec",
+            lecturer = "Dr. A", room = "A201",
+            start = "2025-10-07T12:00:00", end = "2025-10-07T10:00:00",
+            group = "A"
+        )
+        val result = TimetableUtils.toUiEvent(event, "2025-10-06")
+        assertTrue("Event with end before start should be flagged invalid", result.isInvalidTime)
+    }
+
+    @Test
+    fun `toUiEvent flags invalid time when start equals end`() {
+        val event = ApiEvent(
+            module_code = "TU859", title = "Maths", type = "Lec",
+            lecturer = "Dr. A", room = "A201",
+            start = "2025-10-07T10:00:00", end = "2025-10-07T10:00:00",
+            group = "A"
+        )
+        val result = TimetableUtils.toUiEvent(event, "2025-10-06")
+        assertTrue("Event with 0 duration should be flagged invalid", result.isInvalidTime)
+    }
+
+    @Test
+    fun `annotateConflicts flags overlapping concurrent events on same day`() {
+        val event1 = TimetableUtils.toUiEvent(
+            ApiEvent("TU859", "Algorithms", "Lec", "Dr. A", "A201", "2025-10-07T10:00:00", "2025-10-07T12:00:00", "G1"),
+            "2025-10-06"
+        )
+        val event2 = TimetableUtils.toUiEvent(
+            ApiEvent("TU859", "Data Structures", "Lab", "Dr. B", "B101", "2025-10-07T11:00:00", "2025-10-07T13:00:00", "G2"),
+            "2025-10-06"
+        )
+        val event3 = TimetableUtils.toUiEvent(
+            ApiEvent("TU859", "Networks", "Lec", "Dr. C", "C301", "2025-10-07T14:00:00", "2025-10-07T16:00:00", "G1"),
+            "2025-10-06"
+        )
+
+        val annotated = TimetableUtils.annotateConflicts(listOf(event1, event2, event3))
+        assertEquals(3, annotated.size)
+
+        // Event1 (10-12) and Event2 (11-13) overlap
+        assertTrue(annotated[0].isConflicting)
+        assertEquals(1, annotated[0].conflictCount)
+
+        assertTrue(annotated[1].isConflicting)
+        assertEquals(1, annotated[1].conflictCount)
+
+        // Event3 (14-16) does not overlap
+        assertFalse(annotated[2].isConflicting)
+        assertEquals(0, annotated[2].conflictCount)
+    }
+
+    @Test
+    fun `annotateConflicts does not flag consecutive events as conflicting`() {
+        val event1 = TimetableUtils.toUiEvent(
+            ApiEvent("TU859", "Algorithms", "Lec", "Dr. A", "A201", "2025-10-07T10:00:00", "2025-10-07T11:00:00", "G1"),
+            "2025-10-06"
+        )
+        val event2 = TimetableUtils.toUiEvent(
+            ApiEvent("TU859", "Data Structures", "Lab", "Dr. B", "B101", "2025-10-07T11:00:00", "2025-10-07T12:00:00", "G2"),
+            "2025-10-06"
+        )
+
+        val annotated = TimetableUtils.annotateConflicts(listOf(event1, event2))
+        assertFalse("Consecutive events should not conflict", annotated[0].isConflicting)
+        assertFalse("Consecutive events should not conflict", annotated[1].isConflicting)
+    }
 }

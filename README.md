@@ -65,6 +65,10 @@ A native Android timetable app that fetches your TU Dublin university schedule d
 - **Resource Efficiency** — `DateTimeFormatter` instances cached globally; date parsing offloaded to `Dispatchers.Default`
 
 ### UI/UX
+- **Material 3 Design & Elevated Cards** — Modern Material Design 3 cards with 16dp rounded corners, subtle surface tones, and responsive elevation
+- **Conflict & Overlap Detection** — Automatic overlap detection for concurrent timetable entries with warning indicators (`Conflict (+N)`)
+- **Current Time Indicator** — Real-time horizontal indicator bar with active accent dot (`Now · HH:mm`) when today's schedule is active
+- **Floating Action Button (FAB)** — Material 3 FAB allowing students to quickly add personal/custom timetable entries
 - **Themes** — Pick from six colour themes (Classic plus five cozy ones: Latte, Sage, Dusk, Peach, Mist) in Settings → Appearance, each shown with a live preview swatch. The choice applies app-wide and is remembered across restarts
 - **iOS-style design system** — Jetpack Compose screens built on a custom iOS-style theme (colours, type and components) with light/dark support and smooth crossfade animations
 - **In-App Self-Updating** — Scans the `releases/` directory on GitHub (via the Contents API) for new APK files; prompts with an update dialog when a newer version is detected. It matches both release and legacy debug APK names
@@ -163,7 +167,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v2.4)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.4-release.apk)
+[**Download latest APK (v2.5)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.5-release.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
@@ -182,6 +186,7 @@ Every release from v2.0 is a signed release build.
 
 | Version | What it was |
 |---|---|
+| [v2.5](releases/TimeTable-v2.5.md) | Material 3 modernization: ElevatedCard containers, Current Time indicator with accent dot, Floating Action Button (FAB) for custom entries, and conflict/overlap detection engine |
 | [v2.4](releases/TimeTable-v2.4.md) | The Custom theme sliders no longer write to preferences on every drag frame; the README's per-release sections moved here, and pre-v2.0 releases were unpublished |
 | [v2.3](releases/TimeTable-v2.3.md) | Twenty real courses swept end to end; two parsing bugs fixed — a room that rendered as `"null"`, and a module/title swap for a second upstream name shape |
 | [v2.2](releases/TimeTable-v2.2.md) | Student-facing bug sweep: switching week no longer shows the wrong week's classes, Semester 2 is actually auto-detected, weekend classes are visible |

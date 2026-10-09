@@ -51,8 +51,10 @@ import com.example.timetablescraper.update.UpdateChecker
 import com.example.timetablescraper.update.UpdateManager
 import com.example.timetablescraper.worker.TimetableSyncWorker
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -158,11 +160,11 @@ fun SettingsScreen(
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
-    val dateFormat = remember { SimpleDateFormat("MMM d, yyyy 'at' HH:mm", Locale.getDefault()) }
+    val dateFormat = remember { DateTimeFormatter.ofPattern("MMM d, yyyy 'at' HH:mm", Locale.getDefault()) }
 
     fun formatTimestamp(millis: Long?): String {
         if (millis == null || millis == 0L) return "Never"
-        return dateFormat.format(Date(millis))
+        return Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(dateFormat)
     }
 
     // ── Back handler: close dropdowns before navigating away ───────────

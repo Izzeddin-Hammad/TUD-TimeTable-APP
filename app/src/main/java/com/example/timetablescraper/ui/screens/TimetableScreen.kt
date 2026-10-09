@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -250,12 +252,13 @@ fun TimetableScreen(
     val coroutineScope = rememberCoroutineScope()
 
     // Apply the group filter through GroupMatcher so the matching rules live in exactly one
-    // tested place. This replaced an inline `event.group.split("+").any { it.trim() == selectedGroup }`,
-    // which hid every all-cohort (blank-group) lecture as soon as a subgroup was selected, and
-    // matched case-sensitively. Wrapped in derivedStateOf so the filter only recomputes when
-    // events or selectedGroup actually change, not on every recomposition.
+    // tested place. Annotate any concurrent overlapping sessions so students receive clear conflict indicators.
+    // Wrapped in derivedStateOf so the filter only recomputes when events or selectedGroup change.
     val displayEvents by remember(events, selectedGroup) {
-        derivedStateOf { events.filter { GroupMatcher.matches(it.group, selectedGroup) } }
+        derivedStateOf {
+            val filtered = events.filter { GroupMatcher.matches(it.group, selectedGroup) }
+            TimetableUtils.annotateConflicts(filtered)
+        }
     }
 
     // Check if this course is saved/bookmarked
@@ -635,6 +638,100 @@ fun TimetableScreen(
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            var showAddDialog by remember { mutableStateOf(false) }
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                containerColor = IosTheme.colors.accent,
+                contentColor = IosTheme.colors.onAccent,
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Add custom entry")
+            }
+
+            if (showAddDialog) {
+                var newModuleCode by remember { mutableStateOf("") }
+                var newTitle by remember { mutableStateOf("") }
+                var newRoom by remember { mutableStateOf("") }
+                var newTimeRange by remember { mutableStateOf("09:00 - 10:00") }
+
+                AlertDialog(
+                    onDismissRequest = { showAddDialog = false },
+                    title = { Text("Add Timetable Entry") },
+                    text = {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = newModuleCode,
+                                onValueChange = { newModuleCode = it },
+                                label = { Text("Module Code (e.g. COMP101)") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = newTitle,
+                                onValueChange = { newTitle = it },
+                                label = { Text("Title") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = newRoom,
+                                onValueChange = { newRoom = it },
+                                label = { Text("Room / Location") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = newTimeRange,
+                                onValueChange = { newTimeRange = it },
+                                label = { Text("Time Range (e.g. 09:00 - 10:00)") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                if (newTitle.isNotBlank() || newModuleCode.isNotBlank()) {
+                                    val customEvent = TimetableEvent(
+                                        id = System.currentTimeMillis(),
+                                        moduleCode = newModuleCode.ifBlank { "EXTRA" },
+                                        title = newTitle.ifBlank { "Personal Entry" },
+                                        type = "Personal",
+                                        lecturer = "Self",
+                                        room = newRoom.ifBlank { "TBA" },
+                                        start = "",
+                                        end = "",
+                                        day = days.getOrElse(selectedDayIndex) { "Mon" },
+                                        dayIndex = selectedDayIndex,
+                                        timeRange = newTimeRange,
+                                        weekStart = currentMonday.format(DATE_FORMATTER),
+                                        group = selectedGroup ?: ""
+                                    )
+                                    events = events + customEvent
+                                }
+                                showAddDialog = false
+                            }
+                        ) {
+                            Text("Add")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showAddDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
         }
     ) { padding ->
         PullToRefreshBox(
@@ -1056,7 +1153,7 @@ fun TimetableScreen(
 
                 "events" -> {
                     val filteredEvents = displayEvents.filter { it.dayIndex == selectedDayIndex }
-                    EventsContent(days, selectedDayIndex, filteredEvents)
+                    EventsContent(days, selectedDayIndex, displayMonday, filteredEvents)
                 }
 
                 "empty" -> {
@@ -1363,18 +1460,39 @@ private fun NoticeBar(text: String, color: Color) {
 private fun EventsContent(
     days: List<String>,
     selectedDayIndex: Int,
+    displayMonday: java.time.LocalDate,
     filteredEvents: List<TimetableEvent>
 ) {
+    val today = remember { TimetableUtils.currentDublinDate() }
+    val todayMonday = remember { TimetableUtils.getCurrentMonday(today) }
+    val isViewingCurrentWeek = todayMonday == displayMonday
+    val todayDayIndex = when (today.dayOfWeek) {
+        java.time.DayOfWeek.MONDAY -> 0
+        java.time.DayOfWeek.TUESDAY -> 1
+        java.time.DayOfWeek.WEDNESDAY -> 2
+        java.time.DayOfWeek.THURSDAY -> 3
+        java.time.DayOfWeek.FRIDAY -> 4
+        java.time.DayOfWeek.SATURDAY -> 5
+        java.time.DayOfWeek.SUNDAY -> 6
+    }
+    val isTodayActive = isViewingCurrentWeek && selectedDayIndex == todayDayIndex
+
     if (filteredEvents.isEmpty()) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                "No classes on ${days.getOrElse(selectedDayIndex) { days.first() }}",
-                style = IosType.body,
-                color = IosTheme.colors.secondaryLabel
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (isTodayActive) {
+                    CurrentTimeIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                Text(
+                    "No classes on ${days.getOrElse(selectedDayIndex) { days.first() }}",
+                    style = IosType.body,
+                    color = IosTheme.colors.secondaryLabel
+                )
+            }
         }
     } else {
         LazyColumn(
@@ -1384,6 +1502,11 @@ private fun EventsContent(
             contentPadding = PaddingValues(vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            if (isTodayActive) {
+                item(key = "current_time_indicator") {
+                    CurrentTimeIndicator()
+                }
+            }
             items(
                 items = filteredEvents,
                 key = { it.stableListKey() },
@@ -1394,6 +1517,45 @@ private fun EventsContent(
                 }
             }
         }
+    }
+}
+
+/**
+ * Modern Material 3 Current Time horizontal indicator with an active accent dot.
+ */
+@Composable
+private fun CurrentTimeIndicator() {
+    val now = remember { java.time.LocalTime.now(TimetableUtils.DUBLIN_ZONE) }
+    val formattedTime = remember(now) {
+        now.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Subtle accent dot
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(IosTheme.colors.accent)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "Now · $formattedTime",
+            style = IosType.caption1,
+            fontWeight = FontWeight.SemiBold,
+            color = IosTheme.colors.accent
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.5.dp)
+                .background(IosTheme.colors.accent.copy(alpha = 0.5f))
+        )
     }
 }
 
@@ -1498,13 +1660,11 @@ private fun TimetableEventCard(event: TimetableEvent) {
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        Card(
+        ElevatedCard(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = IosTheme.colors.secondarySystemBackground),
-            // Raised, so the card separates by shadow as well as by being a different fill from the
-            // screen behind it.
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            shape = RoundedCornerShape(IosRadius.card)
+            colors = CardDefaults.elevatedCardColors(containerColor = IosTheme.colors.secondarySystemBackground),
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+            shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 // Module code + type badge
@@ -1544,13 +1704,58 @@ private fun TimetableEventCard(event: TimetableEvent) {
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Time
-                Text(
-                    event.timeRange,
-                    style = IosType.callout,
-                    fontWeight = FontWeight.Medium,
-                    color = IosTheme.colors.accent
-                )
+                // Time + Conflict warning
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        event.timeRange,
+                        style = IosType.callout,
+                        fontWeight = FontWeight.Medium,
+                        color = IosTheme.colors.accent
+                    )
+
+                    if (event.isConflicting) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = IosTheme.colors.red.copy(alpha = 0.14f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = "Conflict",
+                                    tint = IosTheme.colors.red,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    "Conflict (+${event.conflictCount})",
+                                    style = IosType.caption2,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = IosTheme.colors.red
+                                )
+                            }
+                        }
+                    } else if (event.isInvalidTime) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = IosTheme.colors.orange.copy(alpha = 0.14f)
+                        ) {
+                            Text(
+                                "Invalid Time",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = IosType.caption2,
+                                fontWeight = FontWeight.SemiBold,
+                                color = IosTheme.colors.orange
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(6.dp))
 

@@ -13,8 +13,9 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.timetablescraper.MainActivity
 import com.example.timetablescraper.R
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
@@ -114,9 +115,12 @@ object SyncNotificationManager {
 
     // ── Formatting ────────────────────────────────────────────────────
 
+    private val TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("MMM d, yyyy 'at' HH:mm", Locale.getDefault())
+
     private fun formatTimestamp(millis: Long): String {
-        val sdf = SimpleDateFormat("MMM d, yyyy 'at' HH:mm", Locale.getDefault())
-        return sdf.format(Date(millis))
+        return Instant.ofEpochMilli(millis)
+            .atZone(ZoneId.systemDefault())
+            .format(TIMESTAMP_FORMATTER)
     }
 
     // ── Permission check ──────────────────────────────────────────────

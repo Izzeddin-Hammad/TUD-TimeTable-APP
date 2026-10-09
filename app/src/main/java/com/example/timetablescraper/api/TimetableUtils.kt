@@ -77,6 +77,22 @@ object TimetableUtils {
                 else -> -1
             }
 
+            val startMins = startLocal?.toLocalTime()?.let { it.hour * 60 + it.minute }
+                ?: legacyTimePart(event.start).takeIf { it.length == 5 && it.contains(":") }?.let {
+                    val parts = it.split(":")
+                    parts[0].toIntOrNull()?.let { h -> parts[1].toIntOrNull()?.let { m -> h * 60 + m } }
+                }
+            val endMins = endLocal?.toLocalTime()?.let { it.hour * 60 + it.minute }
+                ?: legacyTimePart(event.end).takeIf { it.length == 5 && it.contains(":") }?.let {
+                    val parts = it.split(":")
+                    parts[0].toIntOrNull()?.let { h -> parts[1].toIntOrNull()?.let { m -> h * 60 + m } }
+                }
+            val isInvalid = if (startLocal != null && endLocal != null) {
+                !endLocal.isAfter(startLocal)
+            } else if (startMins != null && endMins != null) {
+                endMins <= startMins
+            } else false
+
             TimetableEvent(
                 id = event.id,
                 moduleCode = event.module_code,
@@ -91,7 +107,10 @@ object TimetableUtils {
                 timeRange = "$startTime - $endTime",
                 weekStart = weekStart,
                 group = event.group,
-                groupLabel = event.groupLabel
+                groupLabel = event.groupLabel,
+                startMinutes = startMins,
+                endMinutes = endMins,
+                isInvalidTime = isInvalid
             )
         } catch (_: Exception) {
             TimetableEvent(
@@ -108,8 +127,45 @@ object TimetableUtils {
                 timeRange = "??:?? - ??:??",
                 weekStart = weekStart,
                 group = event.group,
-                groupLabel = event.groupLabel
+                groupLabel = event.groupLabel,
+                isInvalidTime = true
             )
+        }
+    }
+
+    /**
+     * Detects overlapping/conflicting timetable sessions on the same day.
+     * Two sessions conflict if they occur on the same day, both have valid time intervals [start, end),
+     * and their intervals intersect (startA < endB && startB < endA).
+     */
+    fun annotateConflicts(events: List<TimetableEvent>): List<TimetableEvent> {
+        if (events.size <= 1) return events
+
+        // Group by day to compute overlaps per day
+        val byDay = events.groupBy { it.dayIndex }
+        return events.map { current ->
+            if (current.dayIndex < 0 || current.startMinutes == null || current.endMinutes == null || current.isInvalidTime) {
+                current
+            } else {
+                val dayEvents = byDay[current.dayIndex] ?: emptyList()
+                val overlapping = dayEvents.filter { other ->
+                    other !== current &&
+                        other.dayIndex == current.dayIndex &&
+                        other.startMinutes != null &&
+                        other.endMinutes != null &&
+                        !other.isInvalidTime &&
+                        current.startMinutes < other.endMinutes &&
+                        other.startMinutes < current.endMinutes
+                }
+                if (overlapping.isNotEmpty()) {
+                    current.copy(
+                        isConflicting = true,
+                        conflictCount = overlapping.size
+                    )
+                } else {
+                    current
+                }
+            }
         }
     }
 

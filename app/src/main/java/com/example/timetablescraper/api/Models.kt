@@ -91,7 +91,17 @@ data class TimetableEvent(
     val group: String = "",
     val id: Long = 0,        // Room primary key — stable identity for LazyColumn
     /** The cohort as the institution spells it, e.g. "TU859/Y3/C/G1" — what the student sees. */
-    val groupLabel: String = ""
+    val groupLabel: String = "",
+    /** True if this event overlaps with one or more concurrent timetable events. */
+    val isConflicting: Boolean = false,
+    /** Number of other concurrent events overlapping with this one. */
+    val conflictCount: Int = 0,
+    /** Start time in minutes from midnight in institution local time, or null if unparsed. */
+    val startMinutes: Int? = null,
+    /** End time in minutes from midnight in institution local time, or null if unparsed. */
+    val endMinutes: Int? = null,
+    /** True if start is after or equal to end, or duration is 0. */
+    val isInvalidTime: Boolean = false
 )
 
 /**
