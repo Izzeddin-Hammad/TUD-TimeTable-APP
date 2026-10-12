@@ -168,7 +168,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v2.6)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.6-release.apk)
+[**Download latest APK (v2.7)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.7-release.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
@@ -187,6 +187,7 @@ Every release from v2.0 is a signed release build.
 
 | Version | What it was |
 |---|---|
+| [v2.7](releases/TimeTable-v2.7.md) | The white flash between screens is gone — navigating away no longer destroys the screen you are leaving, and the window no longer shows through; returning to Search keeps the results it already had; the "Custom" sync chip no longer breaks its label |
 | [v2.6](releases/TimeTable-v2.6.md) | Week 1 is now the first week of a semester that actually has classes (the first teaching week used to read "W3"), Semester 2 numbers from its own week 1, and a *Now* button jumps to the week containing today |
 | [v2.5](releases/TimeTable-v2.5.md) | Material 3 modernization: ElevatedCard containers, Current Time indicator with accent dot, Floating Action Button (FAB) for custom entries, and conflict/overlap detection engine |
 | [v2.4](releases/TimeTable-v2.4.md) | The Custom theme sliders no longer write to preferences on every drag frame; the README's per-release sections moved here, and pre-v2.0 releases were unpublished |

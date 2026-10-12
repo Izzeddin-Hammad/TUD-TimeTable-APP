@@ -75,12 +75,24 @@ fun SearchScreen(
     var uiTapKey by remember { mutableStateOf(0) }
     val uiRefresh = { uiTapKey++ }
 
+    // The query this screen was entered with. `query` and `results` are hoisted in MainApp so that
+    // coming back from a timetable restores the list you left (and so a rotation keeps it) — but
+    // this effect used to re-run on entry regardless, which cleared the hoisted results to a
+    // spinner a moment after the screen arrived and re-fetched a search that could not have
+    // changed. The screen was right to restore the results and then threw them away.
+    val queryOnEntry = remember { query }
+
     // Debounced search — uses the hoisted query from parent
     LaunchedEffect(query) {
         if (query.isBlank()) {
             onStateChange(query, emptyList(), false, null, false)
             return@LaunchedEffect
         }
+
+        // Unchanged query with results already on screen: nothing to do. When there are *no*
+        // results to keep (a query that found nothing, or a state restored mid-search) the search
+        // still re-runs, so a lost response heals rather than leaving a stale "no courses found".
+        if (query == queryOnEntry && results.isNotEmpty()) return@LaunchedEffect
 
         val capturedQuery = query
         delay(300)

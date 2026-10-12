@@ -17,12 +17,17 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.example.timetablescraper.ui.screens.FatalErrorScreen
 import com.example.timetablescraper.ui.screens.SearchScreen
 import com.example.timetablescraper.ui.screens.SettingsScreen
 import com.example.timetablescraper.ui.screens.TimetableScreen
 import com.example.timetablescraper.ui.theme.AppTheme
+import com.example.timetablescraper.ui.theme.IosTheme
 import com.example.timetablescraper.ui.theme.Motion
 import com.example.timetablescraper.ui.theme.TimetableScraperTheme
 import com.example.timetablescraper.api.SearchResult
@@ -337,8 +342,12 @@ private fun MainApp(
         } else if (starred != null) {
             goToStarredOrExit()
         } else {
-            // No starred course — go to search, don't exit
-            selectedCourse = null
+            // No starred course — go to search, don't exit.
+            // `selectedCourse` is deliberately left alone: AnimatedContent keeps the outgoing
+            // screen composed for the length of the transition, and this branch renders the
+            // timetable from `selectedCourse`, so clearing it here blanked the timetable the
+            // instant you navigated — the tab appeared to flash empty and the search screen slid
+            // in over the bare window background instead of over the timetable.
             preselectedGroup = null
             navForward = false
             currentScreen = "SEARCH"
@@ -355,8 +364,16 @@ private fun MainApp(
     }
 
     // iOS push/pop between screens: the incoming screen slides in from the trailing edge while
-    // the outgoing one parallaxes a third of the way out and fades. An instant `when` swap is the
+    // the outgoing one parallaxes a third of the way out. An instant `when` swap is the
     // single biggest reason an Android app feels less fluid than an iOS one.
+    //
+    // The screens paint their own backgrounds, but nothing painted behind the *stack*: the window
+    // itself is `Theme.Material.Light.NoActionBar`, whose background is near-white, so anywhere the
+    // two travelling screens did not cover showed the window through — a white flash on an app whose
+    // own background is cream, or near-black in dark mode. Painting the app's background here (and
+    // the window's, in themes.xml) means the stack can never expose anything but the app's own
+    // colour, whatever the transition does.
+    Box(modifier = Modifier.fillMaxSize().background(IosTheme.colors.systemBackground)) {
     AnimatedContent(
         targetState = currentScreen,
         transitionSpec = {
@@ -497,9 +514,12 @@ private fun MainApp(
                         }
                     },
                     onSearchClick = {
+                        // A pop, not a push: search is where the timetable was opened from. And
+                        // `selectedCourse` stays set — see goBackFromTimetable. Clearing it here
+                        // destroyed the outgoing timetable mid-transition, so the search screen
+                        // slid in over a blank window instead of over the screen it came from.
                         navForward = false
                         currentScreen = "SEARCH"
-                        selectedCourse = null
                         preselectedGroup = null
                     },
                     onSettingsClick = {
@@ -531,6 +551,7 @@ private fun MainApp(
                 onCustomColorCommitted = onCustomColorCommitted,
             )
         }
+    }
     }
     }
 }

@@ -320,7 +320,19 @@ fun SettingsScreen(
                             SyncStrategy.Custom(1) to "Custom"
                         )
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // A FlowRow, not a Row: a Row measures its children in order and hands each
+                        // one only what is *left* of the width. With the labels below and the chip
+                        // label style this app maps (`labelLarge = Headline`, 17 sp SemiBold), the
+                        // three chips need more width than a phone card has, so the third one — the
+                        // last measured, and therefore the one that absorbs the shortfall — was
+                        // squeezed until its label wrapped, leaving the "m" of "Custom" alone on a
+                        // second line. The labels used to be `6h / 12h / Daily`, which fit.
+                        // A FlowRow measures each child against the full width and moves what does
+                        // not fit onto the next line, so no label can ever be squeezed.
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             modes.forEach { (mode, label) ->
                                 FilterChip(
                                     selected = when (syncStrategy) {

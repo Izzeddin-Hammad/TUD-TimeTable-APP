@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.TimetableScraper" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      The window's own background, painted before Compose's first frame and behind it afterwards.
+
+      Left at the Material default it is near-white, which is wrong for this app twice over: the
+      first frame of a cold start (and of a rotation) showed white before the theme's background
+      arrived, and during a push/pop anything the two travelling screens did not cover showed the
+      window through instead of the app. These values mirror AppTheme.DEFAULT (Cozy Latte) — a theme
+      chosen in Settings is applied at runtime and cannot reach the window, so this is the
+      light/dark default only. Keep in step with LightLatteIosColors / DarkLatteIosColors in
+      ui/theme/Color.kt if the default palette's background ever changes.
+    -->
+    <color name="app_window_background">#FFFBF5EC</color>
+
+    <style name="Theme.TimetableScraper" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/app_window_background</item>
+    </style>
 </resources>

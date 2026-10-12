@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      The dark variant of the window background declared in values/themes.xml. Without it the
+      window stayed near-white in dark mode, so every cold start and rotation began with a white
+      flash against a near-black app. This matches DarkLatteIosColors (AppTheme.DEFAULT in dark).
+    -->
+    <color name="app_window_background">#FF1F1813</color>
+</resources>
