@@ -65,6 +65,8 @@ import com.example.timetablescraper.api.TimetableApiService
 import com.example.timetablescraper.api.TimetableEvent
 import com.example.timetablescraper.api.TimetableUtils
 import com.example.timetablescraper.api.cache.toApiEvent
+import com.example.timetablescraper.ui.components.IosButton
+import com.example.timetablescraper.ui.components.IosButtonStyle
 import com.example.timetablescraper.ui.components.IosDivider
 import com.example.timetablescraper.ui.components.IosSegmentedControl
 import com.example.timetablescraper.ui.theme.IosColors
@@ -214,6 +216,12 @@ fun TimetableScreen(
     var scannedCount by remember { mutableStateOf(0) }
     var totalToScan by remember { mutableStateOf(0) }
     var userPickedWeek by remember { mutableStateOf(false) }
+    // Sticky for the life of this screen: once the student has chosen a week themselves (from the
+    // menu, or with "Now"), the background scan must not yank them to the first active week when it
+    // finishes. `userPickedWeek` cannot serve this purpose — the fetch effect clears it on every
+    // load, so a tap on "Now" while the year was still being classified was undone a second later
+    // by the auto-jump below.
+    var weekChosenByStudent by remember { mutableStateOf(false) }
 
     // Incremented to trigger a force-refresh
     var refreshTrigger by remember { mutableStateOf(0) }
@@ -839,6 +847,31 @@ fun TimetableScreen(
             // Active semester: 0 = Sem 1, 1 = Sem 2 (restored from saved state)
             var activeSemester by remember { mutableStateOf(savedSemester) }
 
+            // ── Semester week numbering ──────────────────────────────────
+            // Week 1 of a semester is its first week that has classes. Numbering by position in the
+            // whole academic list — what this used to do — counted the pre-teaching weeks before it
+            // (the list opens on the Monday on/before 1 September), so the first teaching week read
+            // "W3" for both 2025/26 (first teaching Monday 15 Sep) and 2026/27 (14 Sep).
+            // The anchor is the first *active* week of the semester, not the first entry of the
+            // filtered list: hiding empty weeks changes the list, and numbering that followed it
+            // renumbered the semester every time the toggle flipped. Until the classifier has run,
+            // the semester's own start stands in, so a week number is always shown.
+            val semesterFirstWeek = if (activeSemester == 0) firstWeekDate else sem2WeekDate
+            val semesterActiveWeeks = remember(
+                allAcademicWeeks, activeWeeks, activeSemester, firstWeekDate, sem2WeekDate
+            ) {
+                allAcademicWeeks.filter { w ->
+                    val inSemester = if (activeSemester == 0) {
+                        !w.isBefore(firstWeekDate) &&
+                            (sem2WeekDate == null || w.isBefore(sem2WeekDate))
+                    } else {
+                        sem2WeekDate != null && !w.isBefore(sem2WeekDate)
+                    }
+                    inSemester && w.format(DATE_FORMATTER) in activeWeeks
+                }
+            }
+            val firstTeachingWeek = semesterActiveWeeks.firstOrNull() ?: semesterFirstWeek
+
             // 4. Visible weeks: ALL academic weeks within the semester
             //    minus rate-limited (failedWeeks) entries.
             //    Empty weeks are optionally hidden via Settings toggle.
@@ -885,9 +918,11 @@ fun TimetableScreen(
             // (autoFirstWeek), falling back to the first visible week if no
             // active weeks are known yet.  Re-fires whenever visibleWeeks updates
             // (e.g. scan finishes populating activeWeeks) so the user always lands
-            // on the first real week after the scan completes.
+            // on the first real week after the scan completes — but never once the student has
+            // chosen a week themselves (`weekChosenByStudent`), because the scan finishing is not a
+            // reason to move a student who is already looking at the week they want.
             LaunchedEffect(visibleWeeks) {
-                if (!hasSavedState && !userPickedWeek && visibleWeeks.isNotEmpty()) {
+                if (!hasSavedState && !weekChosenByStudent && visibleWeeks.isNotEmpty()) {
                     currentMonday = if (autoFirstWeek != null && autoFirstWeek in visibleWeeks)
                         autoFirstWeek else visibleWeeks.first()
                 }
@@ -949,7 +984,11 @@ fun TimetableScreen(
                     onExpandedChange = { weekMenuExpanded = it },
                     modifier = Modifier.weight(1f)
                 ) {
-                    val weekNum = allAcademicWeeks.indexOf(displayMonday).let { if (it >= 0) it + 1 else null }
+                    // Relative to the semester's first teaching week — see `firstTeachingWeek`
+                    // above. Null for a week before it, which then shows its dates only.
+                    val weekNum = firstTeachingWeek?.let {
+                        TimetableUtils.teachingWeekNumber(it, displayMonday)
+                    }
                     val label = if (weekNum != null) "W$weekNum · ${TimetableUtils.formatWeekRange(displayMonday)}"
                                 else TimetableUtils.formatWeekRange(displayMonday)
                     OutlinedTextField(
@@ -972,11 +1011,16 @@ fun TimetableScreen(
                         expanded = weekMenuExpanded,
                         onDismissRequest = { weekMenuExpanded = false }
                     ) {
-                        visibleWeeks.forEachIndexed { index, monday ->
+                        visibleWeeks.forEach { monday ->
+                            val weekNum = firstTeachingWeek?.let {
+                                TimetableUtils.teachingWeekNumber(it, monday)
+                            }
                             DropdownMenuItem(
                                 text = {
                                     Text(
-                                        "Week ${allAcademicWeeks.indexOf(monday) + 1} · ${TimetableUtils.formatWeekRange(monday)}",
+                                        if (weekNum != null)
+                                            "Week $weekNum · ${TimetableUtils.formatWeekRange(monday)}"
+                                        else TimetableUtils.formatWeekRange(monday),
                                         fontWeight = if (monday == currentMonday) FontWeight.Bold else FontWeight.Normal
                                     )
                                 },
@@ -984,12 +1028,35 @@ fun TimetableScreen(
                                 weekMenuExpanded = false
                                 currentMonday = monday
                                 userPickedWeek = true
+                                weekChosenByStudent = true
                             },
                                 contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
                             )
                         }
                     }
                 }
+
+                // ── "Now" — jump to the week that contains today ───────────────
+                // The picker is ~30 near-identical date ranges, so working out by hand which one
+                // contains today is the thing this saves the student from doing.
+                IosButton(
+                    text = "Now",
+                    onClick = {
+                        val now = TimetableUtils.currentDublinDate()
+                        val todayMonday = TimetableUtils.getCurrentMonday(now)
+                        // Land in the semester that contains today, or the semester correction
+                        // above immediately bounces the student back to the other one.
+                        activeSemester =
+                            if (sem2WeekDate != null && !todayMonday.isBefore(sem2WeekDate)) 1 else 0
+                        currentMonday = todayMonday
+                        // Open today's tab (Mon = 0 … Sun = 6), clamped to the days this week has.
+                        selectedDayIndex = (now.dayOfWeek.value - 1).coerceIn(0, days.lastIndex)
+                        userPickedWeek = true
+                        weekChosenByStudent = true
+                    },
+                    style = IosButtonStyle.Tinted,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
             }
 
             // ── Group filter (only show if there are multiple groups) ──────

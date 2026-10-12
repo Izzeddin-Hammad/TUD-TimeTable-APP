@@ -285,6 +285,52 @@ class TimetableUtilsTest {
         assertTrue(weeks.contains(mondayOfCurrent))
     }
 
+    // ── teachingWeekNumber ─────────────────────────────────────────────
+
+    @Test
+    fun `teachingWeekNumber numbers the first teaching week as week one`() {
+        val firstTeachingWeek = LocalDate.of(2025, 9, 15)
+        assertEquals(1, TimetableUtils.teachingWeekNumber(firstTeachingWeek, LocalDate.of(2025, 9, 15)))
+    }
+
+    @Test
+    fun `teachingWeekNumber counts from the first teaching week, not the academic year`() {
+        // 2025/26: the academic list opens on Mon 1 Sep, but teaching starts Mon 15 Sep. The old
+        // academic-list index called 15 Sep "W3"; the first teaching week is week 1.
+        val firstTeachingWeek = LocalDate.of(2025, 9, 15)
+        assertEquals(2, TimetableUtils.teachingWeekNumber(firstTeachingWeek, LocalDate.of(2025, 9, 22)))
+        assertEquals(4, TimetableUtils.teachingWeekNumber(firstTeachingWeek, LocalDate.of(2025, 10, 6)))
+    }
+
+    @Test
+    fun `teachingWeekNumber ignores empty weeks in between`() {
+        // A reading week with no classes must not shift the numbers that follow it.
+        val firstTeachingWeek = LocalDate.of(2025, 9, 15)
+        assertEquals(7, TimetableUtils.teachingWeekNumber(firstTeachingWeek, LocalDate.of(2025, 10, 27)))
+    }
+
+    @Test
+    fun `teachingWeekNumber is null before the first teaching week`() {
+        val firstTeachingWeek = LocalDate.of(2025, 9, 15)
+        assertNull(TimetableUtils.teachingWeekNumber(firstTeachingWeek, LocalDate.of(2025, 9, 8)))
+        assertNull(TimetableUtils.teachingWeekNumber(firstTeachingWeek, LocalDate.of(2025, 9, 1)))
+    }
+
+    @Test
+    fun `teachingWeekNumber restarts for a second semester`() {
+        // Semester 2 is numbered from its own first teaching week, so it starts at 1 again.
+        val sem2FirstTeachingWeek = LocalDate.of(2026, 1, 26)
+        assertEquals(1, TimetableUtils.teachingWeekNumber(sem2FirstTeachingWeek, LocalDate.of(2026, 1, 26)))
+        assertEquals(3, TimetableUtils.teachingWeekNumber(sem2FirstTeachingWeek, LocalDate.of(2026, 2, 9)))
+    }
+
+    @Test
+    fun `teachingWeekNumber survives the calendar year boundary`() {
+        val firstTeachingWeek = LocalDate.of(2025, 9, 15)
+        // 2026-01-05 is 16 weeks after the anchor: 17, never a negative or reset value.
+        assertEquals(17, TimetableUtils.teachingWeekNumber(firstTeachingWeek, LocalDate.of(2026, 1, 5)))
+    }
+
     // ── safeFormat ─────────────────────────────────────────────────────
 
     @Test

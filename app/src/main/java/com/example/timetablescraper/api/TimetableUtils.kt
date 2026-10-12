@@ -4,6 +4,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
@@ -178,6 +179,25 @@ object TimetableUtils {
         // Locale-pinned: the old formatter used the device default, so a German device rendered
         // "Okt 6" while the rest of the app (and the tests) assumed English month names.
         return date.format(DAY_DATE_FORMATTER)
+    }
+
+    /**
+     * The 1-based teaching-week number of [monday] within a semester whose first teaching week is
+     * [firstTeachingWeek], or `null` for a week before it.
+     *
+     * Week 1 is the first week of the semester that actually has classes, which is what a student
+     * means by "week 3" — not the position in the academic year, whose September anchor lands on
+     * pre-teaching weeks (the list opens on the Monday on/before 1 September) and made the first
+     * teaching week read "W3". Because the anchor is a property of the semester rather than a
+     * position in the filtered week list, hiding empty weeks cannot renumber anything.
+     *
+     * A `null` return is deliberate: a pre-teaching week carries no week number at all, so the
+     * picker can show it by date only rather than numbering it "W0" (or, worse, "W1").
+     */
+    fun teachingWeekNumber(firstTeachingWeek: LocalDate, monday: LocalDate): Int? {
+        // Both are Mondays, so the difference is a whole number of weeks.
+        val weeks = ChronoUnit.WEEKS.between(firstTeachingWeek, monday).toInt()
+        return if (weeks >= 0) weeks + 1 else null
     }
 
     fun formatWeekRange(monday: LocalDate): String {

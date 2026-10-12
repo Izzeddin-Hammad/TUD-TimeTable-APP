@@ -12,7 +12,8 @@ A native Android timetable app that fetches your TU Dublin university schedule d
 - **Full-Year Week Classifier** — Single API request classifies all 30 academic weeks as active or empty instantly (replaces the old 60-second serial scanner)
 - **Hide Empty Weeks** — Toggle in Settings to remove weeks with no classes from the dropdown (default: on). When enabled, a warning notes that semester auto-detection will not work
 - **Smart Semester Detection** — Auto-detects Semester 1 & 2 boundaries by finding a ≥21-day gap between active weeks after November
-- **Week Dropdown** — Numbered weeks (W1, W2, …) with empty weeks optionally hidden
+- **Week Dropdown** — Numbered weeks (W1, W2, …) with empty weeks optionally hidden. Week 1 is the first week of the semester that actually has classes and the numbering restarts at Semester 2, so "week 3" means what a student means by it
+- **Jump to Now** — A *Now* button beside the week picker lands on the week that contains today, in the correct semester, with today's day tab open
 - **Semester Tabs** — An iOS segmented control for instant Semester 1 / Semester 2 switching; switching always lands in the selected semester, even when it has not been published yet
 - **Subgroup Filtering** — Pick an individual cohort (`TU859/Y3/MLAI/G2`, `G1`, …) from the dropdown, with ⭐ default-group pinning. A class shared by several cohorts still appears under each of them, and the picker never offers merged `A + B` entries; expand unlimited search results at once to compare groups across courses
 - **Pull to Refresh** — Swipe down on the timetable to force a fresh network fetch (limited to once per 24 hours)
@@ -167,7 +168,7 @@ Network calls are completely blocked if the app is opened while the cache is sti
 
 ## Download
 
-[**Download latest APK (v2.5)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.5-release.apk)
+[**Download latest APK (v2.6)**](https://github.com/Izzeddin-Hammad/TUD-TimeTable-APP/raw/main/releases/TimeTable-v2.6-release.apk)
 
 > Requires Android 8.0+ (API 26). Tap the APK to install — the system will prompt you once per app.
 >
@@ -186,6 +187,7 @@ Every release from v2.0 is a signed release build.
 
 | Version | What it was |
 |---|---|
+| [v2.6](releases/TimeTable-v2.6.md) | Week 1 is now the first week of a semester that actually has classes (the first teaching week used to read "W3"), Semester 2 numbers from its own week 1, and a *Now* button jumps to the week containing today |
 | [v2.5](releases/TimeTable-v2.5.md) | Material 3 modernization: ElevatedCard containers, Current Time indicator with accent dot, Floating Action Button (FAB) for custom entries, and conflict/overlap detection engine |
 | [v2.4](releases/TimeTable-v2.4.md) | The Custom theme sliders no longer write to preferences on every drag frame; the README's per-release sections moved here, and pre-v2.0 releases were unpublished |
 | [v2.3](releases/TimeTable-v2.3.md) | Twenty real courses swept end to end; two parsing bugs fixed — a room that rendered as `"null"`, and a module/title swap for a second upstream name shape |
